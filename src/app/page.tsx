@@ -1,344 +1,492 @@
 "use client";
 
-import { useState } from "react";
-
-const tabs = [
-  { id: "guest", label: "Guest view" },
-  { id: "kitchen", label: "Kitchen board" },
-  { id: "owner", label: "Owner dashboard" },
-] as const;
-
-const menu = [
-  {
-    category: "Starters",
-    items: [
-      { name: "Crispy Calamari", price: 12.5, tag: "Popular" },
-      { name: "Truffle Fries", price: 8.5, tag: "Chef pick" },
-      { name: "House Salad", price: 9.0, tag: "Fresh" },
-    ],
-  },
-  {
-    category: "Mains",
-    items: [
-      { name: "Grilled Chicken Bowl", price: 18.0, tag: "Healthy" },
-      { name: "Spicy Ribeye", price: 29.0, tag: "Signature" },
-      { name: "Wild Mushroom Pasta", price: 22.5, tag: "Vegetarian" },
-    ],
-  },
-  {
-    category: "Desserts",
-    items: [
-      { name: "Lava Cake", price: 9.5, tag: "Hot" },
-      { name: "Berry Cheesecake", price: 8.0, tag: "Sweet" },
-    ],
-  },
-];
-
-const orders = [
-  { table: 4, items: "2 Ribeye, 1 Fries", time: "2 min ago", status: "New" },
-  { table: 7, items: "1 Pasta, 2 Soda", time: "6 min ago", status: "Preparing" },
-  { table: 9, items: "3 Chicken Bowl", time: "11 min ago", status: "Ready" },
-  { table: 11, items: "1 Salad, 1 Dessert", time: "14 min ago", status: "New" },
-];
-
-const serviceRequests = [
-  { table: 3, type: "Refill", minutes: 1 },
-  { table: 6, type: "Call waiter", minutes: 4 },
-  { table: 8, type: "Condiments", minutes: 2 },
-  { table: 10, type: "Bill", minutes: 6 },
-];
-
-const ownerMenu = [
-  { name: "Grilled Chicken Bowl", price: 18, stock: true },
-  { name: "Spicy Ribeye", price: 29, stock: true },
-  { name: "House Salad", price: 9, stock: false },
-  { name: "Lava Cake", price: 9.5, stock: true },
-];
-
-const summaryMetrics = [
-  { label: "Tables served", value: "128", change: "+12%" },
-  { label: "Avg. order value", value: "$34.20", change: "+8%" },
-  { label: "Service requests", value: "26", change: "-3%" },
-  { label: "Repeat guests", value: "71%", change: "+9%" },
-];
+import { useEffect, useState } from "react";
+import { MenuItem, OrderCard, OrderItem, OrderStatus, ServiceRequest, ServiceType, UserRole } from "@/types";
+import {
+  broadcastSyncEvent,
+  getStoredMenu,
+  getStoredOrders,
+  getStoredServices,
+  saveStoredMenu,
+  saveStoredOrders,
+  saveStoredServices,
+  subscribeToSyncEvents,
+} from "@/lib/sync";
+import { clearAuthSession, getAuthState, verifyPin } from "@/lib/auth";
+import { getActiveGuestSession, getTableByToken, getTokenForTable, setActiveGuestSession } from "@/lib/tables";
+import {
+  fetchOrdersFromSupabase,
+  fetchServicesFromSupabase,
+  isSupabaseConfigured,
+  subscribeToSupabaseRealtime,
+  syncOrderStatusToSupabase,
+  syncOrderToSupabase,
+  syncOrderTransferToSupabase,
+  syncServiceRequestToSupabase,
+  syncServiceResolveToSupabase,
+} from "@/lib/supabase";
+import { playAlertChime, playOrderChime } from "@/lib/sound";
+import PinModal from "@/components/PinModal";
+import OfflineBanner from "@/components/OfflineBanner";
+import GuestView from "@/components/GuestView";
+import KitchenView from "@/components/KitchenView";
+import OwnerView from "@/components/OwnerView";
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("guest");
+  // Authentication & Gatekeeping
+  const [activeRole, setActiveRole] = useState<UserRole>("guest");
+  const [pinModalRole, setPinModalRole] = useState<"kitchen" | "owner" | null>(null);
+  const [authenticatedRole, setAuthenticatedRole] = useState<"none" | "kitchen" | "owner">("none");
+
+  // Core Application Synced State
+  const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [orders, setOrders] = useState<OrderCard[]>([]);
+  const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
+  const [tableNumber, setTableNumber] = useState<number>(7);
+  const [transferNotice, setTransferNotice] = useState<string | null>(null);
+  const [isClientLoaded, setIsClientLoaded] = useState(false);
+
+  // Initialize from client storage and subscribe to real-time sync
+  useEffect(() => {
+    setIsClientLoaded(true);
+
+    // Read URL query params for table or role
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get("t") || params.get("token");
+      const urlTable = params.get("table");
+
+      if (urlToken) {
+        const found = getTableByToken(urlToken);
+        if (found) {
+          setTableNumber(found.tableNumber);
+          setActiveGuestSession({
+            tableNumber: found.tableNumber,
+            token: found.token,
+            activatedAt: Date.now(),
+          });
+        }
+      } else if (urlTable && !isNaN(Number(urlTable))) {
+        setTableNumber(Number(urlTable));
+      } else {
+        const existingSession = getActiveGuestSession();
+        if (existingSession) {
+          setTableNumber(existingSession.tableNumber);
+        }
+      }
+
+      // Check existing auth session
+      const auth = getAuthState();
+      setAuthenticatedRole(auth.authenticatedRole);
+    }
+
+    // Load initial stored states
+    setMenu(getStoredMenu());
+    setOrders(getStoredOrders());
+    setServiceRequests(getStoredServices());
+
+    // Hydrate latest state from Supabase Cloud if configured
+    if (isSupabaseConfigured()) {
+      fetchOrdersFromSupabase().then((cloudOrders) => {
+        if (cloudOrders && cloudOrders.length > 0) {
+          setOrders(cloudOrders);
+          saveStoredOrders(cloudOrders);
+        }
+      });
+      fetchServicesFromSupabase().then((cloudServices) => {
+        if (cloudServices && cloudServices.length > 0) {
+          setServiceRequests(cloudServices);
+          saveStoredServices(cloudServices);
+        }
+      });
+    }
+
+    // Listen for broadcast sync from other browser tabs / devices
+    const unsubscribe = subscribeToSyncEvents((event) => {
+      switch (event.type) {
+        case "NEW_ORDER": {
+          setOrders((prev) => [event.payload, ...prev]);
+          playOrderChime();
+          break;
+        }
+        case "ORDER_STATUS_CHANGED": {
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.id === event.payload.orderId
+                ? { ...o, status: event.payload.status, updatedAt: event.payload.updatedAt }
+                : o
+            )
+          );
+          break;
+        }
+        case "ORDER_TRANSFERRED": {
+          const { orderId, fromTable, newTable } = event.payload;
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.id === orderId
+                ? { ...o, table: newTable, updatedAt: Date.now() }
+                : o
+            )
+          );
+
+          setTableNumber((currentTable) => {
+            if (currentTable === fromTable) {
+              const newToken = getTokenForTable(newTable);
+              setActiveGuestSession({
+                tableNumber: newTable,
+                token: newToken,
+                activatedAt: Date.now(),
+              });
+              setTransferNotice(`🔔 Your server moved your order from Table ${fromTable} to Table ${newTable}!`);
+              return newTable;
+            }
+            return currentTable;
+          });
+          break;
+        }
+        case "NEW_SERVICE_REQUEST": {
+          setServiceRequests((prev) => [event.payload, ...prev]);
+          playAlertChime();
+          break;
+        }
+        case "SERVICE_RESOLVED": {
+          setServiceRequests((prev) =>
+            prev.map((s) =>
+              s.id === event.payload.requestId
+                ? { ...s, status: "Resolved", resolvedAt: event.payload.resolvedAt }
+                : s
+            )
+          );
+          break;
+        }
+        case "MENU_UPDATED": {
+          setMenu(event.payload);
+          break;
+        }
+      }
+    });
+
+    // Subscribe to Supabase Realtime if configured
+    const unsubscribeSupabase = subscribeToSupabaseRealtime((event) => {
+      switch (event.type) {
+        case "NEW_ORDER":
+          setOrders((prev) => (prev.some((o) => o.id === event.payload.id) ? prev : [event.payload, ...prev]));
+          playOrderChime();
+          break;
+        case "ORDER_STATUS_CHANGED":
+          setOrders((prev) =>
+            prev.map((o) => (o.id === event.payload.orderId ? { ...o, status: event.payload.status, updatedAt: event.payload.updatedAt } : o))
+          );
+          break;
+        case "NEW_SERVICE_REQUEST":
+          setServiceRequests((prev) => (prev.some((s) => s.id === event.payload.id) ? prev : [event.payload, ...prev]));
+          playAlertChime();
+          break;
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeSupabase();
+    };
+  }, []);
+
+  // Sync state changes to storage whenever they change locally
+  const handleUpdateMenu = (newMenu: MenuItem[]) => {
+    setMenu(newMenu);
+    saveStoredMenu(newMenu);
+    broadcastSyncEvent({ type: "MENU_UPDATED", payload: newMenu });
+  };
+
+  const handlePlaceOrder = (items: OrderItem[]) => {
+    const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const serviceFee = subtotal > 0 ? 1.5 : 0;
+    const total = subtotal + serviceFee;
+
+    const newOrder: OrderCard = {
+      id: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      orderNumber: Math.floor(100 + Math.random() * 900),
+      table: tableNumber,
+      items,
+      subtotal,
+      serviceFee,
+      total,
+      status: "New",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const nextOrders = [newOrder, ...orders];
+    setOrders(nextOrders);
+    saveStoredOrders(nextOrders);
+    broadcastSyncEvent({ type: "NEW_ORDER", payload: newOrder });
+    syncOrderToSupabase(newOrder);
+  };
+
+  const handleUpdateOrderStatus = (orderId: string, nextStatus: OrderStatus) => {
+    const updatedAt = Date.now();
+    const nextOrders = orders.map((o) =>
+      o.id === orderId ? { ...o, status: nextStatus, updatedAt } : o
+    );
+    setOrders(nextOrders);
+    saveStoredOrders(nextOrders);
+    broadcastSyncEvent({
+      type: "ORDER_STATUS_CHANGED",
+      payload: { orderId, status: nextStatus, updatedAt },
+    });
+    syncOrderStatusToSupabase(orderId, nextStatus);
+  };
+
+  const handleTransferOrder = (orderId: string, newTable: number) => {
+    const targetOrder = orders.find((o) => o.id === orderId);
+    const fromTable = targetOrder ? targetOrder.table : tableNumber;
+    const updatedAt = Date.now();
+
+    const nextOrders = orders.map((o) =>
+      o.id === orderId ? { ...o, table: newTable, updatedAt } : o
+    );
+    setOrders(nextOrders);
+    saveStoredOrders(nextOrders);
+
+    if (tableNumber === fromTable) {
+      setTableNumber(newTable);
+      setActiveGuestSession({
+        tableNumber: newTable,
+        token: getTokenForTable(newTable),
+        activatedAt: Date.now(),
+      });
+      setTransferNotice(`🔔 Order transferred: You are now at Table ${newTable}.`);
+    }
+
+    broadcastSyncEvent({
+      type: "ORDER_TRANSFERRED",
+      payload: { orderId, fromTable, newTable },
+    });
+    syncOrderTransferToSupabase(orderId, newTable);
+  };
+
+  const handleRequestService = (type: ServiceType) => {
+    const newRequest: ServiceRequest = {
+      id: `srv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      table: tableNumber,
+      type,
+      status: "Pending",
+      createdAt: Date.now(),
+    };
+
+    const nextServices = [newRequest, ...serviceRequests];
+    setServiceRequests(nextServices);
+    saveStoredServices(nextServices);
+    broadcastSyncEvent({ type: "NEW_SERVICE_REQUEST", payload: newRequest });
+    syncServiceRequestToSupabase(newRequest);
+  };
+
+  const handleResolveService = (requestId: string) => {
+    const resolvedAt = Date.now();
+    const nextServices = serviceRequests.map((s) =>
+      s.id === requestId ? { ...s, status: "Resolved" as const, resolvedAt } : s
+    );
+    setServiceRequests(nextServices);
+    saveStoredServices(nextServices);
+    broadcastSyncEvent({
+      type: "SERVICE_RESOLVED",
+      payload: { requestId, resolvedAt },
+    });
+    syncServiceResolveToSupabase(requestId);
+  };
+
+  // Gatekeeping Navigation
+  const handleSelectRole = (role: UserRole) => {
+    if (role === "guest") {
+      setActiveRole("guest");
+      return;
+    }
+
+    if (role === "kitchen") {
+      if (authenticatedRole === "kitchen" || authenticatedRole === "owner") {
+        setActiveRole("kitchen");
+      } else {
+        setPinModalRole("kitchen");
+      }
+      return;
+    }
+
+    if (role === "owner") {
+      if (authenticatedRole === "owner") {
+        setActiveRole("owner");
+      } else {
+        setPinModalRole("owner");
+      }
+      return;
+    }
+  };
+
+  const handlePinSuccess = (role: "kitchen" | "owner") => {
+    setAuthenticatedRole(role);
+    setActiveRole(role);
+    setPinModalRole(null);
+  };
+
+  const handleLockSession = () => {
+    clearAuthSession();
+    setAuthenticatedRole("none");
+    setActiveRole("guest");
+  };
+
+  if (!isClientLoaded) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#fffaf1] text-slate-800">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
+          <p className="mt-4 text-xs font-bold uppercase tracking-widest text-slate-500">
+            Initializing TableTapp...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fffaf1,_#f4efe9_35%,_#efe7dd_100%)] px-4 py-8 text-slate-900 sm:px-6 lg:px-10">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fffbf3,_#f7f2ea_35%,_#efe7dd_100%)] px-4 py-6 text-slate-900 sm:px-6 lg:px-10">
+      <OfflineBanner />
+
       <div className="mx-auto max-w-7xl">
-        <header className="flex flex-col gap-5 rounded-[28px] border border-slate-200 bg-white/80 p-5 shadow-[0_18px_52px_rgba(15,23,42,0.08)] backdrop-blur sm:p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-700">TableTapp</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900 md:text-4xl">
-                Restaurant QR ordering platform
-              </h1>
+        {/* Global Navigation Bar */}
+        <header className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white/80 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500 text-lg font-black text-slate-950 shadow-md">
+              TT
             </div>
-            <div className="flex items-center gap-3 self-start rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 md:self-center">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              Live pilot • 18 tables active
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-amber-700">
+                TableTapp Platform
+              </p>
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                <h1 className="text-xl font-black text-slate-900 sm:text-2xl">
+                  Sunshine Bistro
+                </h1>
+                <span
+                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                    isSupabaseConfigured()
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                      : "bg-amber-100 text-amber-800 border border-amber-300"
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      isSupabaseConfigured() ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                    }`}
+                  />
+                  {isSupabaseConfigured() ? "Supabase Cloud Live" : "Local Sync Active"}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {tabs.map((tab) => (
+          {/* Role Navigation / Gatekeeper Bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleSelectRole("guest")}
+              className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+                activeRole === "guest"
+                  ? "bg-slate-900 text-white shadow-md"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              🍽️ Guest View (Table {tableNumber})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectRole("kitchen")}
+              className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition ${
+                activeRole === "kitchen"
+                  ? "bg-slate-900 text-white shadow-md"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              <span>🍳 Kitchen KDS</span>
+              {authenticatedRole !== "kitchen" && authenticatedRole !== "owner" && (
+                <span className="text-[10px] opacity-75">🔒</span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectRole("owner")}
+              className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition ${
+                activeRole === "owner"
+                  ? "bg-slate-900 text-white shadow-md"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              <span>📊 Owner Suite</span>
+              {authenticatedRole !== "owner" && (
+                <span className="text-[10px] opacity-75">🔒</span>
+              )}
+            </button>
+
+            {authenticatedRole !== "none" && (
               <button
-                key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                  activeTab === tab.id
-                    ? "bg-slate-900 text-white shadow-lg shadow-slate-900/20"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
+                onClick={handleLockSession}
+                className="ml-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                title="Lock staff session and return to guest mode"
               >
-                {tab.label}
+                🔒 Lock
               </button>
-            ))}
+            )}
           </div>
         </header>
 
+        {/* View Rendering based on Active Role */}
         <section className="mt-8">
-          {activeTab === "guest" && (
-            <div className="grid gap-6 lg:grid-cols-[1.4fr_0.6fr]">
-              <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_20px_50px_rgba(15,23,42,0.06)] sm:p-6">
-                <div className="mb-6 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-500">Table 7 • Sunshine Bistro</p>
-                    <h2 className="mt-2 text-2xl font-bold">Menu</h2>
-                  </div>
-                  <div className="rounded-full bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
-                    4 mins prep
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  {menu.map((group) => (
-                    <div key={group.category}>
-                      <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
-                        {group.category}
-                      </p>
-                      <div className="space-y-3">
-                        {group.items.map((item) => (
-                          <div
-                            key={item.name}
-                            className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3"
-                          >
-                            <div className="h-16 w-16 rounded-2xl bg-[linear-gradient(135deg,#f9d28b,#d97706)]" />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-3">
-                                <h3 className="font-semibold text-slate-900">{item.name}</h3>
-                                <span className="rounded-full bg-slate-900 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-white">
-                                  {item.tag}
-                                </span>
-                              </div>
-                              <p className="mt-1 text-sm text-slate-500">
-                                Freshly prepared, served with house sauces.
-                              </p>
-                              <div className="mt-2 flex items-center justify-between">
-                                <span className="text-lg font-bold text-slate-900">${item.price.toFixed(2)}</span>
-                                <button className="rounded-full bg-amber-500 px-3.5 py-2 text-sm font-semibold text-white shadow-sm shadow-amber-500/40 transition hover:bg-amber-600">
-                                  Add item
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <aside className="rounded-[28px] border border-slate-200 bg-slate-900 p-5 text-white shadow-[0_20px_50px_rgba(15,23,42,0.18)] sm:p-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-bold">Your order</h2>
-                  <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em]">
-                    2 items
-                  </span>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  <div className="flex items-center justify-between rounded-2xl bg-white/5 p-3">
-                    <div>
-                      <p className="font-medium">Grilled Chicken Bowl</p>
-                      <p className="text-sm text-slate-300">Extra avocado</p>
-                    </div>
-                    <span className="font-semibold">$18.00</span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-white/5 p-3">
-                    <div>
-                      <p className="font-medium">Lava Cake</p>
-                      <p className="text-sm text-slate-300">Add ice cream</p>
-                    </div>
-                    <span className="font-semibold">$9.50</span>
-                  </div>
-                </div>
-
-                <div className="mt-6 border-t border-white/10 pt-5">
-                  <div className="flex items-center justify-between text-sm text-slate-300">
-                    <span>Subtotal</span>
-                    <span>$27.50</span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-sm text-slate-300">
-                    <span>Service fee</span>
-                    <span>$1.50</span>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between text-lg font-bold">
-                    <span>Total</span>
-                    <span>$29.00</span>
-                  </div>
-                </div>
-
-                <button className="mt-6 w-full rounded-full bg-emerald-500 px-5 py-3.5 text-base font-bold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400">
-                  Place order
-                </button>
-
-                <button className="mt-3 w-full rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold text-white/90 transition hover:bg-white/10">
-                  Need help? Call waiter
-                </button>
-              </aside>
-            </div>
+          {activeRole === "guest" && (
+            <GuestView
+              tableNumber={tableNumber}
+              onTableChange={setTableNumber}
+              isStaff={authenticatedRole !== "none"}
+              menu={menu}
+              tableOrders={orders}
+              transferNotice={transferNotice}
+              onDismissTransferNotice={() => setTransferNotice(null)}
+              onPlaceOrder={handlePlaceOrder}
+              onRequestService={handleRequestService}
+              onOpenStaffLogin={(role) => setPinModalRole(role)}
+            />
           )}
 
-          {activeTab === "kitchen" && (
-            <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-              <div className="space-y-4">
-                {orders.map((order) => (
-                  <div
-                    key={`${order.table}-${order.time}`}
-                    className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)]"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">
-                          Table {order.table}
-                        </p>
-                        <h3 className="mt-2 text-xl font-bold text-slate-900">{order.items}</h3>
-                      </div>
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-[0.12em] ${
-                          order.status === "New"
-                            ? "bg-rose-100 text-rose-700"
-                            : order.status === "Preparing"
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-emerald-100 text-emerald-700"
-                        }`}
-                      >
-                        {order.status}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-4 text-sm text-slate-500">
-                      <span>{order.time}</span>
-                      <div className="flex gap-2">
-                        <button className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-100">
-                          Preparing
-                        </button>
-                        <button className="rounded-full bg-slate-900 px-3 py-1.5 font-semibold text-white hover:bg-slate-700">
-                          Ready
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <aside className="rounded-[28px] border border-slate-200 bg-slate-900 p-5 text-white shadow-[0_18px_45px_rgba(15,23,42,0.16)] sm:p-6">
-                <h2 className="text-xl font-bold">Service requests</h2>
-                <div className="mt-5 space-y-3">
-                  {serviceRequests.map((request) => (
-                    <div key={`${request.table}-${request.type}`} className="rounded-2xl bg-white/5 p-3">
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold">Table {request.table}</p>
-                        <span className="text-xs uppercase tracking-[0.18em] text-slate-300">
-                          {request.minutes} min
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm text-slate-300">{request.type}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <button className="mt-6 w-full rounded-full bg-amber-500 px-5 py-3 font-bold text-slate-900 transition hover:bg-amber-400">
-                  Sound: on
-                </button>
-              </aside>
-            </div>
+          {activeRole === "kitchen" && (
+            <KitchenView
+              orders={orders}
+              serviceRequests={serviceRequests}
+              onUpdateOrderStatus={handleUpdateOrderStatus}
+              onResolveService={handleResolveService}
+              onTransferOrder={handleTransferOrder}
+              onLockSession={handleLockSession}
+            />
           )}
 
-          {activeTab === "owner" && (
-            <div className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-4">
-                {summaryMetrics.map((metric) => (
-                  <div key={metric.label} className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.04)]">
-                    <p className="text-sm text-slate-500">{metric.label}</p>
-                    <div className="mt-4 flex items-end justify-between gap-3">
-                      <span className="text-3xl font-black text-slate-900">{metric.value}</span>
-                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">
-                        {metric.change}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-                <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.05)] sm:p-6">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-2xl font-bold">Menu manager</h2>
-                    <button className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700">
-                      + Add item
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    {ownerMenu.map((item) => (
-                      <div key={item.name} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                        <div>
-                          <p className="font-semibold text-slate-900">{item.name}</p>
-                          <p className="text-sm text-slate-500">${item.price.toFixed(2)}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <button className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
-                            Edit
-                          </button>
-                          <button
-                            className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] ${
-                              item.stock ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-                            }`}
-                          >
-                            {item.stock ? "In stock" : "Sold out"}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-[28px] border border-slate-200 bg-slate-900 p-5 text-white shadow-[0_18px_45px_rgba(15,23,42,0.16)] sm:p-6">
-                  <h2 className="text-xl font-bold">QR print ready</h2>
-                  <div className="mt-5 rounded-3xl bg-white p-4 text-slate-900">
-                    <div className="mx-auto flex h-40 w-40 items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-100 text-center text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                      QR Code
-                    </div>
-                  </div>
-                  <div className="mt-5 space-y-2 text-sm text-slate-300">
-                    <p>All tables configured for the dinner service.</p>
-                    <p>Active token set: 18 / 18</p>
-                    <p>Domain: sunshinebistro.com</p>
-                  </div>
-                  <button className="mt-6 w-full rounded-full bg-white px-5 py-3 font-bold text-slate-900 transition hover:bg-slate-200">
-                    Print QR stand sheet
-                  </button>
-                </div>
-              </div>
-            </div>
+          {activeRole === "owner" && (
+            <OwnerView
+              menu={menu}
+              orders={orders}
+              services={serviceRequests}
+              onUpdateMenu={handleUpdateMenu}
+              onLockSession={handleLockSession}
+            />
           )}
         </section>
       </div>
+
+      {/* Gatekeeping PIN Authentication Modal */}
+      <PinModal
+        isOpen={pinModalRole !== null}
+        requestedRole={pinModalRole || "kitchen"}
+        onSuccess={handlePinSuccess}
+        onClose={() => setPinModalRole(null)}
+      />
     </main>
   );
 }
