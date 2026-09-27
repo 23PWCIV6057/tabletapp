@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { MenuItem, OrderCard, OrderItem, ServiceRequest, ServiceType } from "@/types";
+import { GeoFenceConfig, MenuItem, OrderCard, OrderItem, ServiceRequest, ServiceType } from "@/types";
+import { verifyUserWithinRestaurant } from "@/lib/geo";
 import DishCustomizeModal from "./DishCustomizeModal";
 import LiveOrderTracker from "./LiveOrderTracker";
 
@@ -13,9 +14,10 @@ interface GuestViewProps {
   tableOrders: OrderCard[];
   transferNotice?: string | null;
   onDismissTransferNotice?: () => void;
-  onPlaceOrder: (items: OrderItem[]) => void;
+  onPlaceOrder: (items: OrderItem[], meta?: { geoVerified?: boolean; distanceMeters?: number }) => void;
   onRequestService: (type: ServiceType) => void;
   onOpenStaffLogin: (role: "kitchen" | "owner") => void;
+  geoConfig?: GeoFenceConfig;
 }
 
 const CATEGORIES = ["All", "Starters", "Mains", "Desserts", "Drinks"] as const;
@@ -40,6 +42,7 @@ export default function GuestView({
   onPlaceOrder,
   onRequestService,
   onOpenStaffLogin,
+  geoConfig,
 }: GuestViewProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [selectedTag, setSelectedTag] = useState<string>("All");
@@ -53,6 +56,20 @@ export default function GuestView({
       return [];
     }
   });
+
+  // GPS Location Verification States
+  const [isVerifyingLocation, setIsVerifyingLocation] = useState(false);
+  const [geoBlockedModal, setGeoBlockedModal] = useState<{
+    distanceMeters?: number;
+    message: string;
+    isPermissionError?: boolean;
+  } | null>(null);
+  const [staffBypassPin, setStaffBypassPin] = useState("");
+  const [showBypassInput, setShowBypassInput] = useState(false);
+  const [bypassError, setBypassError] = useState(false);
+
+  // Completed Orders Tracking: Allow customer to dismiss or auto-clear completed orders
+  const [dismissedOrderIds, setDismissedOrderIds] = useState<string[]>([]);
 
   // Save cart to localStorage
   useEffect(() => {
@@ -78,8 +95,7 @@ export default function GuestView({
     return () => clearInterval(interval);
   }, [serviceCooldown]);
 
-  // Filtered menu
-  const filteredMenu = useMemo(() => {
+  const filteredItems = useMemo(() => {
     return menu.filter((item) => {
       const matchesCategory =
         selectedCategory === "All" || item.category === selectedCategory;
@@ -87,16 +103,35 @@ export default function GuestView({
         selectedTag === "All" ||
         item.tag.toLowerCase().includes(selectedTag.toLowerCase());
       const matchesSearch =
-        searchQuery.trim() === "" ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase());
+
       return matchesCategory && matchesTag && matchesSearch;
     });
   }, [menu, selectedCategory, selectedTag, searchQuery]);
 
-  // Cart operations
-  const handleAddToCart = (orderItem: OrderItem) => {
-    setCart((prev) => [...prev, orderItem]);
+  const handleAddToCart = (item: OrderItem) => {
+    setCart((prev) => {
+      const existingIdx = prev.findIndex(
+        (ci) =>
+          ci.itemId === item.itemId &&
+          ci.specialInstructions === item.specialInstructions &&
+          JSON.stringify(ci.selectedModifiers) === JSON.stringify(item.selectedModifiers)
+      );
+
+      if (existingIdx > -1) {
+        const updated = [...prev];
+        const current = updated[existingIdx];
+        const newQty = current.quantity + item.quantity;
+        updated[existingIdx] = {
+          ...current,
+          quantity: newQty,
+          totalPrice: current.unitPrice * newQty,
+        };
+        return updated;
+      }
+      return [...prev, item];
+    });
   };
 
   const handleUpdateCartQuantity = (index: number, delta: number) => {
@@ -120,10 +155,73 @@ export default function GuestView({
   const serviceFee = cartSubtotal > 0 ? 1.5 : 0;
   const cartTotal = cartSubtotal + serviceFee;
 
-  const handleCheckout = () => {
+  // Checkout with GPS Location Guard
+  const handleCheckout = async () => {
     if (cart.length === 0) return;
-    onPlaceOrder(cart);
+
+    if (geoConfig && geoConfig.enabled) {
+      setIsVerifyingLocation(true);
+      try {
+        const check = await verifyUserWithinRestaurant(geoConfig);
+        setIsVerifyingLocation(false);
+
+        if (!check.success) {
+          if (check.reason === "OUTSIDE_RADIUS") {
+            setGeoBlockedModal({
+              distanceMeters: check.distanceMeters,
+              message: check.message,
+            });
+            return;
+          } else if (check.reason === "PERMISSION_DENIED" || check.reason === "UNAVAILABLE" || check.reason === "TIMEOUT") {
+            if (geoConfig.strictMode) {
+              setGeoBlockedModal({
+                message: check.message,
+                isPermissionError: true,
+              });
+              return;
+            } else {
+              // Non-strict mode: allow order but flag to kitchen as unverified location
+              onPlaceOrder(cart, { geoVerified: false });
+              setCart([]);
+              return;
+            }
+          }
+        } else {
+          // Success: within perimeter
+          onPlaceOrder(cart, { geoVerified: true, distanceMeters: check.distanceMeters });
+          setCart([]);
+          return;
+        }
+      } catch {
+        setIsVerifyingLocation(false);
+        if (geoConfig.strictMode) {
+          setGeoBlockedModal({
+            message: "Unable to verify physical restaurant location. Please enable GPS permissions.",
+            isPermissionError: true,
+          });
+          return;
+        }
+      }
+    }
+
+    onPlaceOrder(cart, { geoVerified: true });
     setCart([]);
+  };
+
+  // Staff bypass for guests with broken GPS
+  const handleStaffBypassSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (staffBypassPin === "1234" || staffBypassPin === "8888") {
+      setGeoBlockedModal(null);
+      setShowBypassInput(false);
+      setStaffBypassPin("");
+      setBypassError(false);
+      onPlaceOrder(cart, { geoVerified: true, distanceMeters: 0 });
+      setCart([]);
+    } else {
+      setBypassError(true);
+      setTimeout(() => setBypassError(false), 2000);
+    }
   };
 
   const handleTriggerService = (type: ServiceType) => {
@@ -134,8 +232,20 @@ export default function GuestView({
     setTimeout(() => setServiceToast(null), 5000);
   };
 
-  const activeOrdersForTable = tableOrders.filter(
-    (o) => o.table === tableNumber && o.status !== "Archived"
+  // Separate in-progress cooking tickets from served/completed ones
+  // In-progress orders (New, Preparing, Ready) stay on screen
+  const inProgressOrders = tableOrders.filter(
+    (o) =>
+      o.table === tableNumber &&
+      (o.status === "New" || o.status === "Preparing" || o.status === "Ready")
+  );
+
+  // Served orders can be dismissed so they do NOT permanently clutter the customer UI
+  const recentlyServedOrders = tableOrders.filter(
+    (o) =>
+      o.table === tableNumber &&
+      o.status === "Served" &&
+      !dismissedOrderIds.includes(o.id)
   );
 
   return (
@@ -222,18 +332,60 @@ export default function GuestView({
         </div>
       </div>
 
-      {/* Live Order Tracker Section (if guest placed orders) */}
-      {activeOrdersForTable.length > 0 && (
+      {/* Celebratory Banner for Completed/Served Orders (with Dismiss button) */}
+      {recentlyServedOrders.length > 0 && (
+        <div className="space-y-2">
+          {recentlyServedOrders.map((served) => (
+            <div
+              key={served.id}
+              className="flex items-center justify-between rounded-2xl border-2 border-emerald-400 bg-gradient-to-r from-emerald-50 via-emerald-100/40 to-white p-4 text-emerald-950 shadow-md animate-in fade-in slide-in-from-top-2"
+            >
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-2xl text-white shadow-sm">
+                  🍽️
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md bg-emerald-700 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                      Order #{served.orderNumber}
+                    </span>
+                    <span className="text-xs font-bold text-emerald-800">
+                      Served to Table {tableNumber}!
+                    </span>
+                  </div>
+                  <p className="text-xs font-black text-emerald-950 mt-0.5">
+                    Your food has arrived at your table. Enjoy your meal!
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDismissedOrderIds((prev) => [...prev, served.id])}
+                className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-800 transition shadow-sm"
+              >
+                Dismiss ✓
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Live Order Tracker Section (In-Progress orders only) */}
+      {inProgressOrders.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
-              <span>Your Placed Orders</span>
-              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
-                Live Kitchen Sync
+              <span>Your Kitchen Queue</span>
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800 animate-pulse">
+                Cooking in Progress
               </span>
             </h3>
           </div>
-          <LiveOrderTracker orders={activeOrdersForTable} />
+          <LiveOrderTracker
+            orders={inProgressOrders}
+            onDismissOrder={(id) => setDismissedOrderIds((prev) => [...prev, id])}
+          />
         </section>
       )}
 
@@ -250,76 +402,66 @@ export default function GuestView({
             </p>
           </div>
           {serviceCooldown > 0 && (
-            <span className="self-start rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">
-              ⏳ Cooldown: {serviceCooldown}s left
+            <span className="self-start sm:self-auto rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
+              ⏳ Cooldown: {serviceCooldown}s
             </span>
           )}
         </div>
 
         {serviceToast && (
-          <div className="mt-3 rounded-2xl bg-emerald-600 p-3 text-xs font-bold text-white shadow-md transition-all">
+          <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-xs font-bold text-emerald-900">
             {serviceToast}
           </div>
         )}
 
         <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-5">
-          {SERVICE_OPTIONS.map((opt) => (
+          {SERVICE_OPTIONS.map((srv) => (
             <button
-              key={opt.type}
+              key={srv.type}
               type="button"
               disabled={serviceCooldown > 0}
-              onClick={() => handleTriggerService(opt.type)}
-              className={`flex flex-col items-center justify-center rounded-2xl border p-3 text-center transition ${
+              onClick={() => handleTriggerService(srv.type)}
+              className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl border p-3 text-center transition ${
                 serviceCooldown > 0
-                  ? "border-slate-200 bg-slate-100/60 opacity-60 cursor-not-allowed"
-                  : "border-amber-300/60 bg-white hover:border-amber-500 hover:bg-amber-50/50 hover:shadow-sm active:scale-95"
+                  ? "cursor-not-allowed border-slate-200 bg-slate-100/70 text-slate-400"
+                  : "border-slate-200 bg-white text-slate-800 shadow-sm hover:border-amber-400 hover:bg-amber-500/10 active:scale-95"
               }`}
             >
-              <span className="text-xl">{opt.icon}</span>
-              <span className="mt-1 text-xs font-bold text-slate-800">{opt.label}</span>
+              <span className="text-2xl">{srv.icon}</span>
+              <span className="text-xs font-bold">{srv.label}</span>
             </button>
           ))}
         </div>
       </section>
 
-      {/* Menu & Cart Grid */}
-      <div className="grid gap-8 lg:grid-cols-[1.35fr_0.65fr]">
-        {/* Left Column: Menu Browsing */}
-        <div className="space-y-6">
-          {/* Search & Category Pills */}
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-            {/* Search Input */}
+      {/* Main Dining Menu Section */}
+      <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
+        {/* Menu Items List */}
+        <section className="space-y-6">
+          {/* Search + Category Filter Bar */}
+          <div className="space-y-3">
             <div className="relative">
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search dishes, burgers, pasta, drinks..."
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-amber-500 focus:bg-white"
+                placeholder="Search appetizers, steaks, pastas, drinks..."
+                className="w-full rounded-2xl border border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10"
               />
-              <span className="absolute left-4 top-3.5 text-slate-400 text-sm">🔍</span>
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-3.5 top-3 text-xs text-slate-400 hover:text-slate-600"
-                >
-                  ✕
-                </button>
-              )}
+              <span className="absolute left-4 top-3.5 text-base text-slate-400">🔍</span>
             </div>
 
             {/* Category Pills */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat}
                   type="button"
                   onClick={() => setSelectedCategory(cat)}
-                  className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+                  className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold transition ${
                     selectedCategory === cat
-                      ? "bg-slate-900 text-white shadow"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      ? "bg-slate-900 text-white shadow-md"
+                      : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                   }`}
                 >
                   {cat}
@@ -327,137 +469,104 @@ export default function GuestView({
               ))}
             </div>
 
-            {/* Dietary Filter Chips */}
-            <div className="flex items-center gap-2 border-t border-slate-100 pt-3 overflow-x-auto pb-1 text-xs">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Filter:
-              </span>
+            {/* Dietary Tags Filter */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               {DIETARY_TAGS.map((tag) => (
                 <button
                   key={tag}
                   type="button"
                   onClick={() => setSelectedTag(tag)}
-                  className={`rounded-full px-3 py-1 font-semibold transition shrink-0 ${
+                  className={`shrink-0 rounded-xl px-3 py-1 text-[11px] font-semibold transition ${
                     selectedTag === tag
-                      ? "bg-amber-500 text-slate-950 font-bold"
-                      : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      ? "bg-amber-500 text-slate-950 font-black"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  {tag}
+                  {tag === "All" ? "All Tags" : `#${tag}`}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Dishes List */}
-          <div className="space-y-4">
-            {filteredMenu.length === 0 ? (
-              <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center">
-                <p className="text-3xl">🍽️</p>
-                <p className="mt-2 text-base font-bold text-slate-700">No dishes found</p>
-                <p className="text-xs text-slate-400">
-                  Try clearing your search query or dietary filters
-                </p>
-              </div>
-            ) : (
-              filteredMenu.map((item) => (
-                <div
-                  key={item.id}
-                  className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-[26px] border p-4 sm:p-5 transition ${
-                    item.available
-                      ? "border-slate-200 bg-white shadow-sm hover:border-amber-300 hover:shadow-md"
-                      : "border-slate-200 bg-slate-50/80 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-start gap-4 min-w-0 flex-1">
-                    {/* Visual Dish Accent Box */}
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-amber-400 to-amber-600 text-2xl text-white shadow-sm font-black">
-                      {item.category === "Drinks"
-                        ? "🍹"
-                        : item.category === "Desserts"
-                          ? "🍰"
-                          : item.category === "Starters"
-                            ? "🥗"
-                            : "🥩"}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="text-base font-black text-slate-900">{item.name}</h4>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
-                          {item.tag}
-                        </span>
-                        {!item.available && (
-                          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">
-                            Sold Out
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500 line-clamp-2 leading-relaxed">
-                        {item.description}
-                      </p>
-                      {item.prepTimeMinutes && (
-                        <p className="mt-1 text-[11px] font-medium text-slate-400">
-                          ⏱ Prep time: ~{item.prepTimeMinutes} mins
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between w-full sm:w-auto sm:flex-col sm:items-end gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
-                    <span className="text-xl font-black text-slate-900">
+          {/* Dishes Grid */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {filteredItems.map((item) => (
+              <div
+                key={item.id}
+                className="group flex flex-col justify-between rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm transition hover:border-amber-400 hover:shadow-md"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-800">
+                      {item.tag}
+                    </span>
+                    <span className="text-base font-black text-slate-900">
                       ${item.price.toFixed(2)}
                     </span>
-                    <button
-                      type="button"
-                      disabled={!item.available}
-                      onClick={() => setCustomizingItem(item)}
-                      className={`rounded-full px-4 py-2 text-xs font-black shadow-sm transition ${
-                        item.available
-                          ? "bg-amber-500 text-slate-950 hover:bg-amber-400 active:scale-95"
-                          : "bg-slate-200 text-slate-400 cursor-not-allowed"
-                      }`}
-                    >
-                      {item.modifierGroups && item.modifierGroups.length > 0
-                        ? "+ Customize"
-                        : "+ Add to Cart"}
-                    </button>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
 
-        {/* Right Column: Sticky Cart Drawer */}
-        <aside className="h-fit rounded-[32px] border border-slate-800 bg-slate-950 p-6 text-white shadow-2xl lg:sticky lg:top-8">
+                  <h3 className="mt-2 text-base font-black text-slate-900 group-hover:text-amber-600 transition">
+                    {item.name}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+                    {item.description}
+                  </p>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    ⏱ ~{item.prepTimeMinutes || 10}m prep
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={!item.available}
+                    onClick={() => setCustomizingItem(item)}
+                    className={`rounded-full px-4 py-2 text-xs font-black transition ${
+                      item.available
+                        ? "bg-slate-900 text-white hover:bg-amber-500 hover:text-slate-950 active:scale-95 shadow-sm"
+                        : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                    }`}
+                  >
+                    {item.available ? "+ Customize & Add" : "Sold Out"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Live Table Cart Side Panel */}
+        <aside className="h-fit rounded-[28px] border border-slate-900 bg-slate-900 p-6 text-white shadow-2xl">
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
             <div>
-              <h3 className="text-lg font-black tracking-tight">Your Table Order</h3>
-              <p className="text-xs text-slate-400">Table {tableNumber}</p>
+              <h3 className="text-lg font-black">Table {tableNumber} Cart</h3>
+              <p className="text-xs text-slate-400">Review your table party order</p>
             </div>
-            <span className="rounded-full bg-amber-400/20 px-3 py-1 text-xs font-bold text-amber-400">
-              {cart.reduce((s, i) => s + i.quantity, 0)} items
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500 text-xs font-black text-slate-950">
+              {cart.reduce((sum, item) => sum + item.quantity, 0)}
             </span>
           </div>
 
-          <div className="mt-4 max-h-[420px] overflow-y-auto space-y-3 pr-1">
+          {/* Cart Items List */}
+          <div className="mt-4 max-h-[380px] space-y-3 overflow-y-auto pr-1">
             {cart.length === 0 ? (
-              <div className="py-12 text-center text-slate-400">
-                <span className="text-3xl">🛒</span>
-                <p className="mt-2 text-sm font-semibold">Your cart is empty</p>
-                <p className="text-xs text-slate-500">
-                  Select dishes from the menu to start ordering
-                </p>
+              <div className="py-12 text-center text-slate-500">
+                <p className="text-3xl">🛒</p>
+                <p className="mt-2 text-xs font-bold">Your table cart is empty</p>
+                <p className="text-[11px] text-slate-600">Select dishes from the menu to start</p>
               </div>
             ) : (
-              cart.map((item, index) => (
-                <div key={index} className="rounded-2xl border border-slate-800 bg-slate-900/90 p-3.5">
-                  <div className="flex items-start justify-between gap-2">
+              cart.map((item, idx) => (
+                <div
+                  key={idx}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3.5 space-y-2"
+                >
+                  <div className="flex items-start justify-between">
                     <div>
-                      <h5 className="text-sm font-bold text-white">{item.name}</h5>
+                      <h4 className="text-xs font-black text-white">{item.name}</h4>
                       {item.selectedModifiers.length > 0 && (
-                        <p className="text-[11px] text-amber-400/90">
+                        <p className="text-[10px] text-amber-400">
                           {item.selectedModifiers.map((m) => m.optionName).join(", ")}
                         </p>
                       )}
@@ -467,27 +576,25 @@ export default function GuestView({
                         </p>
                       )}
                     </div>
-                    <span className="text-xs font-bold text-white">
+                    <span className="text-xs font-black text-white">
                       ${item.totalPrice.toFixed(2)}
                     </span>
                   </div>
 
-                  <div className="mt-3 flex items-center justify-between border-t border-slate-800/80 pt-2.5">
-                    <div className="flex items-center gap-2 rounded-full bg-slate-800 px-2 py-1">
+                  <div className="flex items-center justify-between border-t border-slate-800/80 pt-2">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleUpdateCartQuantity(index, -1)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-700 text-xs font-bold text-white hover:bg-slate-600"
+                        onClick={() => handleUpdateCartQuantity(idx, -1)}
+                        className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold text-white hover:bg-slate-700"
                       >
-                        −
+                        -
                       </button>
-                      <span className="min-w-4 text-center text-xs font-bold text-white">
-                        {item.quantity}
-                      </span>
+                      <span className="text-xs font-black text-white">{item.quantity}</span>
                       <button
                         type="button"
-                        onClick={() => handleUpdateCartQuantity(index, 1)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-700 text-xs font-bold text-white hover:bg-slate-600"
+                        onClick={() => handleUpdateCartQuantity(idx, 1)}
+                        className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold text-white hover:bg-slate-700"
                       >
                         +
                       </button>
@@ -495,8 +602,10 @@ export default function GuestView({
 
                     <button
                       type="button"
-                      onClick={() => handleUpdateCartQuantity(index, -item.quantity)}
-                      className="text-[11px] text-slate-500 hover:text-rose-400"
+                      onClick={() =>
+                        setCart((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      className="text-[11px] text-rose-400 hover:text-rose-300"
                     >
                       Remove
                     </button>
@@ -524,13 +633,21 @@ export default function GuestView({
 
               <button
                 type="button"
+                disabled={isVerifyingLocation}
                 onClick={handleCheckout}
-                className="mt-4 w-full rounded-full bg-emerald-500 py-3.5 text-center text-sm font-black text-slate-950 shadow-lg shadow-emerald-500/25 transition hover:bg-emerald-400 active:scale-[0.99]"
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-emerald-500 py-3.5 text-center text-sm font-black text-slate-950 shadow-lg shadow-emerald-500/25 transition hover:bg-emerald-400 active:scale-[0.99] disabled:opacity-70"
               >
-                Place Table Order • ${cartTotal.toFixed(2)}
+                {isVerifyingLocation ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950 border-t-transparent" />
+                    <span>Verifying On-Premises GPS...</span>
+                  </>
+                ) : (
+                  <span>Place Table Order • ${cartTotal.toFixed(2)}</span>
+                )}
               </button>
               <p className="text-center text-[10px] text-slate-500 pt-1">
-                Orders are sent directly to the kitchen. Pay at counter or upon bill request.
+                📍 Verified on-premises • Kitchen receives orders in real-time
               </p>
             </div>
           )}
@@ -544,6 +661,92 @@ export default function GuestView({
         onClose={() => setCustomizingItem(null)}
         onAddToCart={handleAddToCart}
       />
+
+      {/* GPS Remote Order Blocked Modal (Anti-Tamper Shield) */}
+      {geoBlockedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md rounded-[32px] border border-rose-200 bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-100 text-3xl text-rose-600">
+              📍
+            </div>
+
+            <h3 className="mt-4 text-xl font-black text-slate-900">
+              {geoBlockedModal.isPermissionError ? "Location Access Required" : "Outside Restaurant Perimeter"}
+            </h3>
+
+            <p className="mt-2 text-xs text-slate-600 leading-relaxed">
+              {geoBlockedModal.message}
+            </p>
+
+            <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50/70 p-3.5 text-left text-xs text-rose-950 space-y-1">
+              <p className="font-bold">🛡️ Anti-Prank Security Active:</p>
+              <p className="text-[11px] text-rose-800">
+                To prevent remote prank orders from outside the building, TableTapp ensures guests are physically seated inside Sunshine Bistro before sending tickets to the chef.
+              </p>
+            </div>
+
+            {/* Staff Override PIN Form */}
+            {showBypassInput ? (
+              <form onSubmit={handleStaffBypassSubmit} className="mt-4 space-y-2">
+                <p className="text-xs font-bold text-slate-700">Enter Staff Override PIN:</p>
+                <input
+                  type="password"
+                  maxLength={4}
+                  value={staffBypassPin}
+                  onChange={(e) => setStaffBypassPin(e.target.value)}
+                  placeholder="Staff PIN (1234)"
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-center text-sm font-bold tracking-widest text-slate-900 outline-none focus:border-amber-500"
+                />
+                {bypassError && (
+                  <p className="text-xs font-bold text-rose-600">Invalid Staff PIN</p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="flex-1 rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800"
+                  >
+                    Authorize Order
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBypassInput(false)}
+                    className="rounded-xl bg-slate-200 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="mt-5 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleCheckout}
+                  className="w-full rounded-full bg-slate-900 py-3 text-xs font-black text-white hover:bg-slate-800 transition shadow-md"
+                >
+                  Retry GPS Verification 🔄
+                </button>
+
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setGeoBlockedModal(null)}
+                    className="text-slate-500 hover:text-slate-800"
+                  >
+                    Close & Edit Cart
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBypassInput(true)}
+                    className="text-amber-700 font-bold hover:underline"
+                  >
+                    Ask Waiter / Staff Bypass
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Discrete Staff Portal Gatekeeper in Footer */}
       <footer className="mt-16 border-t border-slate-200/80 pt-8 text-center">

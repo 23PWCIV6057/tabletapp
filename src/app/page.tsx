@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MenuItem, OrderCard, OrderItem, OrderStatus, ServiceRequest, ServiceType, UserRole } from "@/types";
+import { GeoFenceConfig, MenuItem, OrderCard, OrderItem, OrderStatus, ServiceRequest, ServiceType, TableOccupancyStatus, TableSession, UserRole } from "@/types";
 import {
   broadcastSyncEvent,
   getStoredMenu,
@@ -12,8 +12,18 @@ import {
   saveStoredServices,
   subscribeToSyncEvents,
 } from "@/lib/sync";
-import { clearAuthSession, getAuthState, verifyPin } from "@/lib/auth";
-import { getActiveGuestSession, getTableByToken, getTokenForTable, setActiveGuestSession } from "@/lib/tables";
+import { clearAuthSession, getAuthState } from "@/lib/auth";
+import {
+  clearTableFloorSession,
+  getActiveGuestSession,
+  getStoredTableSessions,
+  getTableByToken,
+  getTokenForTable,
+  saveStoredTableSessions,
+  setActiveGuestSession,
+  updateTableStatus,
+} from "@/lib/tables";
+import { getStoredGeoConfig, saveStoredGeoConfig } from "@/lib/geo";
 import {
   fetchOrdersFromSupabase,
   fetchServicesFromSupabase,
@@ -46,6 +56,10 @@ export default function Home() {
   const [transferNotice, setTransferNotice] = useState<string | null>(null);
   const [isClientLoaded, setIsClientLoaded] = useState(false);
 
+  // Advanced Security & Floor Lifecycle State
+  const [tableSessions, setTableSessions] = useState<Record<number, TableSession>>({});
+  const [geoConfig, setGeoConfig] = useState<GeoFenceConfig>(getStoredGeoConfig());
+
   // Initialize from client storage and subscribe to real-time sync
   useEffect(() => {
     setIsClientLoaded(true);
@@ -67,7 +81,13 @@ export default function Home() {
           });
         }
       } else if (urlTable && !isNaN(Number(urlTable))) {
-        setTableNumber(Number(urlTable));
+        // If guest has existing session, lock to it; otherwise allow param
+        const existingSession = getActiveGuestSession();
+        if (existingSession && getAuthState().authenticatedRole === "none") {
+          setTableNumber(existingSession.tableNumber);
+        } else {
+          setTableNumber(Number(urlTable));
+        }
       } else {
         const existingSession = getActiveGuestSession();
         if (existingSession) {
@@ -84,6 +104,8 @@ export default function Home() {
     setMenu(getStoredMenu());
     setOrders(getStoredOrders());
     setServiceRequests(getStoredServices());
+    setTableSessions(getStoredTableSessions());
+    setGeoConfig(getStoredGeoConfig());
 
     // Hydrate latest state from Supabase Cloud if configured
     if (isSupabaseConfigured()) {
@@ -106,6 +128,15 @@ export default function Home() {
       switch (event.type) {
         case "NEW_ORDER": {
           setOrders((prev) => [event.payload, ...prev]);
+          // Update table floor status to ACTIVE_ORDER
+          setTableSessions((prev) => ({
+            ...prev,
+            [event.payload.table]: {
+              tableNumber: event.payload.table,
+              status: "ACTIVE_ORDER",
+              lastActivityAt: Date.now(),
+            },
+          }));
           playOrderChime();
           break;
         }
@@ -144,8 +175,28 @@ export default function Home() {
           });
           break;
         }
+        case "ORDER_REJECTED": {
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.id === event.payload.orderId
+                ? { ...o, status: "Rejected" as OrderStatus, rejectedReason: event.payload.reason, updatedAt: Date.now() }
+                : o
+            )
+          );
+          break;
+        }
         case "NEW_SERVICE_REQUEST": {
           setServiceRequests((prev) => [event.payload, ...prev]);
+          if (event.payload.type === "Request Bill") {
+            setTableSessions((prev) => ({
+              ...prev,
+              [event.payload.table]: {
+                tableNumber: event.payload.table,
+                status: "BILL_REQUESTED",
+                lastActivityAt: Date.now(),
+              },
+            }));
+          }
           playAlertChime();
           break;
         }
@@ -161,6 +212,41 @@ export default function Home() {
         }
         case "MENU_UPDATED": {
           setMenu(event.payload);
+          break;
+        }
+        case "TABLE_STATUS_CHANGED": {
+          setTableSessions((prev) => ({
+            ...prev,
+            [event.payload.tableNumber]: {
+              tableNumber: event.payload.tableNumber,
+              status: event.payload.status,
+              seatedAt: event.payload.seatedAt,
+              lastActivityAt: Date.now(),
+            },
+          }));
+          break;
+        }
+        case "TABLE_CLEARED": {
+          setTableSessions((prev) => ({
+            ...prev,
+            [event.payload.tableNumber]: {
+              tableNumber: event.payload.tableNumber,
+              status: "VACANT",
+              lastActivityAt: Date.now(),
+            },
+          }));
+          // Archive orders for cleared table
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.table === event.payload.tableNumber && o.status !== "Archived"
+                ? { ...o, status: "Archived" as OrderStatus, updatedAt: Date.now() }
+                : o
+            )
+          );
+          break;
+        }
+        case "GEO_CONFIG_UPDATED": {
+          setGeoConfig(event.payload);
           break;
         }
       }
@@ -198,10 +284,57 @@ export default function Home() {
     broadcastSyncEvent({ type: "MENU_UPDATED", payload: newMenu });
   };
 
-  const handlePlaceOrder = (items: OrderItem[]) => {
+  const handleUpdateGeoConfig = (newConfig: GeoFenceConfig) => {
+    setGeoConfig(newConfig);
+    saveStoredGeoConfig(newConfig);
+    broadcastSyncEvent({ type: "GEO_CONFIG_UPDATED", payload: newConfig });
+  };
+
+  const handleUpdateTableStatus = (table: number, status: TableOccupancyStatus) => {
+    const updated = updateTableStatus(table, status);
+    setTableSessions((prev) => ({ ...prev, [table]: updated }));
+    broadcastSyncEvent({
+      type: "TABLE_STATUS_CHANGED",
+      payload: { tableNumber: table, status, seatedAt: updated.seatedAt },
+    });
+  };
+
+  const handleClearTable = (table: number) => {
+    const cleared = clearTableFloorSession(table);
+    setTableSessions((prev) => ({ ...prev, [table]: cleared }));
+
+    // Archive all active orders for this table
+    const updatedOrders = orders.map((o) =>
+      o.table === table && o.status !== "Archived"
+        ? { ...o, status: "Archived" as OrderStatus, updatedAt: Date.now() }
+        : o
+    );
+    setOrders(updatedOrders);
+    saveStoredOrders(updatedOrders);
+
+    // Resolve any pending service requests for this table
+    const updatedServices = serviceRequests.map((s) =>
+      s.table === table && s.status === "Pending"
+        ? { ...s, status: "Resolved" as const, resolvedAt: Date.now() }
+        : s
+    );
+    setServiceRequests(updatedServices);
+    saveStoredServices(updatedServices);
+
+    broadcastSyncEvent({ type: "TABLE_CLEARED", payload: { tableNumber: table } });
+  };
+
+  const handlePlaceOrder = (
+    items: OrderItem[],
+    meta?: { geoVerified?: boolean; distanceMeters?: number }
+  ) => {
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const serviceFee = subtotal > 0 ? 1.5 : 0;
     const total = subtotal + serviceFee;
+
+    // Check if table was marked VACANT before this order arrived
+    const currentTableSession = tableSessions[tableNumber];
+    const tableWasVacant = !currentTableSession || currentTableSession.status === "VACANT";
 
     const newOrder: OrderCard = {
       id: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -214,6 +347,9 @@ export default function Home() {
       status: "New",
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      geoVerified: meta?.geoVerified ?? true,
+      distanceMeters: meta?.distanceMeters,
+      tableWasVacant,
     };
 
     const nextOrders = [newOrder, ...orders];
@@ -221,6 +357,9 @@ export default function Home() {
     saveStoredOrders(nextOrders);
     broadcastSyncEvent({ type: "NEW_ORDER", payload: newOrder });
     syncOrderToSupabase(newOrder);
+
+    // Auto-advance table floor status to ACTIVE_ORDER
+    handleUpdateTableStatus(tableNumber, "ACTIVE_ORDER");
   };
 
   const handleUpdateOrderStatus = (orderId: string, nextStatus: OrderStatus) => {
@@ -235,6 +374,19 @@ export default function Home() {
       payload: { orderId, status: nextStatus, updatedAt },
     });
     syncOrderStatusToSupabase(orderId, nextStatus);
+  };
+
+  const handleRejectOrder = (orderId: string, reason: string) => {
+    const updatedAt = Date.now();
+    const nextOrders = orders.map((o) =>
+      o.id === orderId
+        ? { ...o, status: "Rejected" as OrderStatus, rejectedReason: reason, updatedAt }
+        : o
+    );
+    setOrders(nextOrders);
+    saveStoredOrders(nextOrders);
+    broadcastSyncEvent({ type: "ORDER_REJECTED", payload: { orderId, reason } });
+    syncOrderStatusToSupabase(orderId, "Rejected" as OrderStatus);
   };
 
   const handleTransferOrder = (orderId: string, newTable: number) => {
@@ -279,6 +431,10 @@ export default function Home() {
     saveStoredServices(nextServices);
     broadcastSyncEvent({ type: "NEW_SERVICE_REQUEST", payload: newRequest });
     syncServiceRequestToSupabase(newRequest);
+
+    if (type === "Request Bill") {
+      handleUpdateTableStatus(tableNumber, "BILL_REQUESTED");
+    }
   };
 
   const handleResolveService = (requestId: string) => {
@@ -348,37 +504,32 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fffbf3,_#f7f2ea_35%,_#efe7dd_100%)] px-4 py-6 text-slate-900 sm:px-6 lg:px-10">
-      <OfflineBanner />
-
       <div className="mx-auto max-w-7xl">
-        {/* Global Navigation Bar */}
-        <header className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white/80 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <OfflineBanner />
+
+        {/* Global Navigation Header */}
+        <header className="mb-6 flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500 text-lg font-black text-slate-950 shadow-md">
-              TT
-            </div>
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500 text-2xl font-black text-slate-950 shadow-md">
+              ⚡
+            </span>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-amber-700">
-                TableTapp Platform
-              </p>
-              <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                <h1 className="text-xl font-black text-slate-900 sm:text-2xl">
-                  Sunshine Bistro
-                </h1>
-                <span
-                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                    isSupabaseConfigured()
-                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                      : "bg-amber-100 text-amber-800 border border-amber-300"
-                  }`}
-                >
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      isSupabaseConfigured() ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-                    }`}
-                  />
+              <h1 className="text-lg font-black tracking-tight text-slate-900 sm:text-xl">
+                TableTapp
+              </h1>
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>Sunshine Bistro</span>
+                <span>•</span>
+                <span className="font-semibold text-emerald-600 flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                   {isSupabaseConfigured() ? "Supabase Cloud Live" : "Local Sync Active"}
                 </span>
+                {geoConfig.enabled && (
+                  <>
+                    <span>•</span>
+                    <span className="font-semibold text-amber-700">📍 GPS Geofence Active</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -454,6 +605,7 @@ export default function Home() {
               onPlaceOrder={handlePlaceOrder}
               onRequestService={handleRequestService}
               onOpenStaffLogin={(role) => setPinModalRole(role)}
+              geoConfig={geoConfig}
             />
           )}
 
@@ -461,9 +613,13 @@ export default function Home() {
             <KitchenView
               orders={orders}
               serviceRequests={serviceRequests}
+              tableSessions={tableSessions}
               onUpdateOrderStatus={handleUpdateOrderStatus}
               onResolveService={handleResolveService}
               onTransferOrder={handleTransferOrder}
+              onUpdateTableStatus={handleUpdateTableStatus}
+              onClearTable={handleClearTable}
+              onRejectOrder={handleRejectOrder}
               onLockSession={handleLockSession}
             />
           )}
@@ -473,7 +629,9 @@ export default function Home() {
               menu={menu}
               orders={orders}
               services={serviceRequests}
+              geoConfig={geoConfig}
               onUpdateMenu={handleUpdateMenu}
+              onUpdateGeoConfig={handleUpdateGeoConfig}
               onLockSession={handleLockSession}
             />
           )}

@@ -1,3 +1,5 @@
+import { TableOccupancyStatus, TableSession } from "@/types";
+
 export type TableEntry = {
   tableNumber: number;
   token: string;
@@ -5,6 +7,7 @@ export type TableEntry = {
 };
 
 const TABLE_STORAGE_KEY = "tabletapp_table_tokens_v1";
+const TABLE_SESSIONS_STORAGE_KEY = "tabletapp_table_sessions_v1";
 
 // Default deterministic tokens for Tables 1 through 16
 const DEFAULT_TABLES: TableEntry[] = [
@@ -109,4 +112,78 @@ export function clearActiveGuestSession() {
   } catch {
     // Ignore
   }
+}
+
+// Table Floor Lifecycle Management (Tables 1 - 16)
+export function getInitialTableSessions(): Record<number, TableSession> {
+  const map: Record<number, TableSession> = {};
+  for (let i = 1; i <= 16; i++) {
+    map[i] = {
+      tableNumber: i,
+      status: "VACANT",
+      lastActivityAt: Date.now(),
+    };
+  }
+  // Initialize sample active tables based on initial mock orders (Tables 3, 6, 7, 8, 9)
+  map[3] = { tableNumber: 3, status: "ACTIVE_ORDER", seatedAt: Date.now() - 30 * 60 * 1000, lastActivityAt: Date.now() - 2 * 60 * 1000 };
+  map[6] = { tableNumber: 6, status: "BILL_REQUESTED", seatedAt: Date.now() - 45 * 60 * 1000, lastActivityAt: Date.now() - 5 * 60 * 1000 };
+  map[7] = { tableNumber: 7, status: "ACTIVE_ORDER", seatedAt: Date.now() - 15 * 60 * 1000, lastActivityAt: Date.now() - 3 * 60 * 1000 };
+  map[8] = { tableNumber: 8, status: "SEATED", seatedAt: Date.now() - 10 * 60 * 1000, lastActivityAt: Date.now() - 1 * 60 * 1000 };
+  map[9] = { tableNumber: 9, status: "ACTIVE_ORDER", seatedAt: Date.now() - 20 * 60 * 1000, lastActivityAt: Date.now() - 2 * 60 * 1000 };
+  return map;
+}
+
+export function getStoredTableSessions(): Record<number, TableSession> {
+  if (typeof window === "undefined") return getInitialTableSessions();
+  try {
+    const raw = localStorage.getItem(TABLE_SESSIONS_STORAGE_KEY);
+    if (!raw) {
+      const initial = getInitialTableSessions();
+      localStorage.setItem(TABLE_SESSIONS_STORAGE_KEY, JSON.stringify(initial));
+      return initial;
+    }
+    return JSON.parse(raw);
+  } catch {
+    return getInitialTableSessions();
+  }
+}
+
+export function saveStoredTableSessions(sessions: Record<number, TableSession>) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(TABLE_SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
+  } catch {
+    // Ignore
+  }
+}
+
+export function updateTableStatus(
+  tableNumber: number,
+  status: TableOccupancyStatus,
+  seatedAt?: number
+): TableSession {
+  const sessions = getStoredTableSessions();
+  const current = sessions[tableNumber] || { tableNumber, status: "VACANT" };
+  const updated: TableSession = {
+    ...current,
+    status,
+    seatedAt: seatedAt !== undefined ? seatedAt : status === "SEATED" && !current.seatedAt ? Date.now() : current.seatedAt,
+    lastActivityAt: Date.now(),
+  };
+  sessions[tableNumber] = updated;
+  saveStoredTableSessions(sessions);
+  return updated;
+}
+
+export function clearTableFloorSession(tableNumber: number): TableSession {
+  const sessions = getStoredTableSessions();
+  const cleared: TableSession = {
+    tableNumber,
+    status: "VACANT",
+    seatedAt: undefined,
+    lastActivityAt: Date.now(),
+  };
+  sessions[tableNumber] = cleared;
+  saveStoredTableSessions(sessions);
+  return cleared;
 }

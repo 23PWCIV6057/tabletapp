@@ -38,7 +38,7 @@ export type OrderItem = {
   specialInstructions?: string;
 };
 
-export type OrderStatus = "New" | "Preparing" | "Ready" | "Served" | "Archived";
+export type OrderStatus = "New" | "Preparing" | "Ready" | "Served" | "Archived" | "Rejected";
 
 export type OrderCard = {
   id: string;
@@ -51,6 +51,10 @@ export type OrderCard = {
   status: OrderStatus;
   createdAt: number; // Unix timestamp ms
   updatedAt: number;
+  geoVerified?: boolean;
+  distanceMeters?: number;
+  tableWasVacant?: boolean;
+  rejectedReason?: string;
 };
 
 export type ServiceType = 
@@ -71,10 +75,34 @@ export type ServiceRequest = {
 
 export type UserRole = "guest" | "kitchen" | "owner";
 
+// Table Floor Occupancy Lifecycle
+export type TableOccupancyStatus = "VACANT" | "SEATED" | "ACTIVE_ORDER" | "SERVED" | "BILL_REQUESTED";
+
+export type TableSession = {
+  tableNumber: number;
+  status: TableOccupancyStatus;
+  seatedAt?: number;
+  lastActivityAt?: number;
+};
+
+// GPS Geofence Anti-Tamper Configuration
+export type GeoFenceConfig = {
+  enabled: boolean;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number; // e.g. 100
+  restaurantName: string;
+  strictMode: boolean; // if true, block order outside geofence; if false, warn
+};
+
 export type SyncEvent =
   | { type: "NEW_ORDER"; payload: OrderCard }
   | { type: "ORDER_STATUS_CHANGED"; payload: { orderId: string; status: OrderStatus; updatedAt: number } }
   | { type: "ORDER_TRANSFERRED"; payload: { orderId: string; fromTable: number; newTable: number } }
+  | { type: "ORDER_REJECTED"; payload: { orderId: string; reason: string } }
   | { type: "NEW_SERVICE_REQUEST"; payload: ServiceRequest }
   | { type: "SERVICE_RESOLVED"; payload: { requestId: string; resolvedAt: number } }
-  | { type: "MENU_UPDATED"; payload: MenuItem[] };
+  | { type: "MENU_UPDATED"; payload: MenuItem[] }
+  | { type: "TABLE_STATUS_CHANGED"; payload: { tableNumber: number; status: TableOccupancyStatus; seatedAt?: number } }
+  | { type: "TABLE_CLEARED"; payload: { tableNumber: number } }
+  | { type: "GEO_CONFIG_UPDATED"; payload: GeoFenceConfig };

@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { MenuCategory, MenuItem, OrderCard, ServiceRequest } from "@/types";
+import { GeoFenceConfig, MenuCategory, MenuItem, OrderCard, ServiceRequest } from "@/types";
 import { getTokenForTable, rotateTokenForTable } from "@/lib/tables";
+import { calculateDistanceMeters, DEFAULT_GEO_CONFIG } from "@/lib/geo";
 import QRCodeView from "./QRCodeView";
 
 interface OwnerViewProps {
   menu: MenuItem[];
   orders: OrderCard[];
   services: ServiceRequest[];
+  geoConfig?: GeoFenceConfig;
   onUpdateMenu: (menu: MenuItem[]) => void;
+  onUpdateGeoConfig?: (config: GeoFenceConfig) => void;
   onLockSession: () => void;
 }
 
@@ -17,16 +20,24 @@ export default function OwnerView({
   menu,
   orders,
   services,
+  geoConfig = DEFAULT_GEO_CONFIG,
   onUpdateMenu,
+  onUpdateGeoConfig,
   onLockSession,
 }: OwnerViewProps) {
   // Navigation subtabs inside Owner
-  const [subTab, setSubTab] = useState<"menu" | "qr" | "analytics">("menu");
+  const [subTab, setSubTab] = useState<"menu" | "qr" | "analytics" | "security">("menu");
 
   // Selected table for QR code generator
   const [selectedTableForQr, setSelectedTableForQr] = useState<number>(1);
   const [domainUrl, setDomainUrl] = useState<string>("https://sunshinebistro.com");
   const [tokenVersion, setTokenVersion] = useState<number>(0);
+
+  // GPS Security State
+  const [geoForm, setGeoForm] = useState<GeoFenceConfig>(geoConfig);
+  const [isCapturingGps, setIsCapturingGps] = useState(false);
+  const [gpsToast, setGpsToast] = useState<string | null>(null);
+  const [testDistanceResult, setTestDistanceResult] = useState<string | null>(null);
 
   const currentToken = getTokenForTable(selectedTableForQr);
   const currentQrUrl = `${domainUrl}/t/${currentToken}`;
@@ -52,10 +63,10 @@ export default function OwnerView({
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
 
   // Dynamic Metrics Calculation
-  const totalSales = orders.reduce((sum, o) => sum + (o.status !== "Archived" ? o.total : 0), 0);
-  const completedOrders = orders.filter((o) => o.status === "Served" || o.status === "Ready");
+  const totalSales = orders.reduce((sum, o) => sum + (o.status !== "Archived" && o.status !== "Rejected" ? o.total : 0), 0);
+  const completedOrders = orders.filter((o) => o.status === "Served");
   const aov = orders.length > 0 ? totalSales / orders.length : 0;
-  const activeTablesCount = new Set(orders.filter((o) => o.status !== "Served" && o.status !== "Archived").map((o) => o.table)).size;
+  const activeTablesCount = new Set(orders.filter((o) => o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected").map((o) => o.table)).size;
 
   // Toggle availability
   const toggleAvailability = (itemId: number) => {
@@ -100,38 +111,87 @@ export default function OwnerView({
     });
   };
 
-  // Save Edit Item
+  // Save edited item
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
 
-    const updated = menu.map((m) => (m.id === editingItem.id ? editingItem : m));
+    const updated = menu.map((item) =>
+      item.id === editingItem.id ? editingItem : item
+    );
     onUpdateMenu(updated);
     setEditingItem(null);
   };
 
-  const handlePrint = () => {
-    if (typeof window !== "undefined") {
-      window.print();
+  // GPS Handlers
+  const handleCaptureCurrentLocation = () => {
+    if (!("geolocation" in navigator)) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+    setIsCapturingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsCapturingGps(false);
+        const { latitude, longitude } = pos.coords;
+        setGeoForm((prev) => ({
+          ...prev,
+          latitude: Number(latitude.toFixed(6)),
+          longitude: Number(longitude.toFixed(6)),
+        }));
+        setGpsToast(`Captured current coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+        setTimeout(() => setGpsToast(null), 4000);
+      },
+      (err) => {
+        setIsCapturingGps(false);
+        alert(`Failed to get location: ${err.message}. Ensure location permissions are granted.`);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
+  const handleSaveGeoSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onUpdateGeoConfig) {
+      onUpdateGeoConfig(geoForm);
+      setGpsToast("GPS Geofence security settings updated successfully!");
+      setTimeout(() => setGpsToast(null), 4000);
     }
   };
 
+  const handleTestDistance = () => {
+    if (!("geolocation" in navigator)) return;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const dist = calculateDistanceMeters(
+        pos.coords.latitude,
+        pos.coords.longitude,
+        geoForm.latitude,
+        geoForm.longitude
+      );
+      if (dist <= geoForm.radiusMeters) {
+        setTestDistanceResult(`✅ You are WITHIN the geofence! (Distance: ${dist} meters, Limit: ${geoForm.radiusMeters}m)`);
+      } else {
+        setTestDistanceResult(`❌ You are OUTSIDE the geofence! (Distance: ${dist >= 1000 ? (dist / 1000).toFixed(2) + " km" : dist + " meters"})`);
+      }
+    });
+  };
+
   return (
-    <div className="space-y-8">
-      {/* Header with Navigation and Lock */}
-      <header className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+    <div className="space-y-6">
+      {/* Owner Header */}
+      <header className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_16px_40px_rgba(15,23,42,0.05)] sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-black text-purple-800">
-              Manager Authenticated
-            </span>
-            <span className="text-xs font-bold text-slate-400">Sunshine Bistro System</span>
+            <span className="flex h-3 w-3 rounded-full bg-amber-500" />
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
+              Sunshine Bistro • Executive Management
+            </p>
           </div>
           <h2 className="mt-1 text-2xl font-black text-slate-900 sm:text-3xl">
             Restaurant Owner Suite
           </h2>
           <p className="text-xs text-slate-500">
-            Control live menu pricing, stock availability, and table QR code generation
+            Control live menu pricing, stock availability, table QR stands, and anti-tamper geofencing
           </p>
         </div>
 
@@ -157,6 +217,15 @@ export default function OwnerView({
             </button>
             <button
               type="button"
+              onClick={() => setSubTab("security")}
+              className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+                subTab === "security" ? "bg-slate-900 text-white shadow" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              📍 GPS & Anti-Tamper
+            </button>
+            <button
+              type="button"
               onClick={() => setSubTab("analytics")}
               className={`rounded-full px-4 py-2 text-xs font-bold transition ${
                 subTab === "analytics" ? "bg-slate-900 text-white shadow" : "text-slate-600 hover:text-slate-900"
@@ -179,119 +248,97 @@ export default function OwnerView({
       {/* Overview Metric Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Today&apos;s Gross Sales</p>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-900">${totalSales.toFixed(2)}</span>
-            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">
-              Live
-            </span>
-          </div>
-          <p className="mt-1 text-[11px] text-slate-500">From {orders.length} table orders</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Live Revenue</p>
+          <p className="mt-2 text-3xl font-black text-slate-900">${totalSales.toFixed(2)}</p>
+          <span className="mt-1 text-[11px] font-semibold text-emerald-600">Active dining session</span>
         </div>
 
         <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Avg. Order Value (AOV)</p>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-900">${aov.toFixed(2)}</span>
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-800">
-              Target $30+
-            </span>
-          </div>
-          <p className="mt-1 text-[11px] text-slate-500">Average ticket per dining table</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Orders Placed</p>
+          <p className="mt-2 text-3xl font-black text-slate-900">{orders.length}</p>
+          <span className="mt-1 text-[11px] font-semibold text-slate-500">{completedOrders.length} completed</span>
         </div>
 
         <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Active Tables Dining</p>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-900">{activeTablesCount}</span>
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
-              Dining now
-            </span>
-          </div>
-          <p className="mt-1 text-[11px] text-slate-500">Tables with unarchived tickets</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Average Order Value (AOV)</p>
+          <p className="mt-2 text-3xl font-black text-slate-900">${aov.toFixed(2)}</p>
+          <span className="mt-1 text-[11px] font-semibold text-slate-500">Per table order</span>
         </div>
 
         <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Menu Offerings</p>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-900">{menu.length} Dishes</span>
-            <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-800">
-              {menu.filter((m) => m.available).length} In Stock
-            </span>
-          </div>
-          <p className="mt-1 text-[11px] text-slate-500">
-            {menu.filter((m) => !m.available).length} Marked Sold Out
-          </p>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Occupied Tables</p>
+          <p className="mt-2 text-3xl font-black text-amber-600">{activeTablesCount} / 16</p>
+          <span className="mt-1 text-[11px] font-semibold text-slate-500">{16 - activeTablesCount} available</span>
         </div>
       </div>
 
-      {/* Subtab 1: Menu Management */}
+      {/* Subtab 1: Menu Manager */}
       {subTab === "menu" && (
-        <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
-          {/* Active Dishes List */}
+        <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
+          {/* Menu Items Table */}
           <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
-                <h3 className="text-xl font-black text-slate-900">Active Menu Items</h3>
-                <p className="text-xs text-slate-500">
-                  Manage live prices and instant &quot;Sold Out&quot; status for guests
-                </p>
+                <h3 className="text-xl font-black text-slate-900">Live Restaurant Menu</h3>
+                <p className="text-xs text-slate-500">Toggle availability or modify dish specs</p>
               </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-                {menu.length} total
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                {menu.length} Dishes Registered
               </span>
             </div>
 
-            <div className="mt-5 space-y-3">
-              {menu.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 transition hover:border-slate-200 hover:bg-slate-50"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-black text-slate-900">{item.name}</span>
-                      <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
-                        {item.category}
-                      </span>
-                      <span className="text-xs font-bold text-emerald-700">
-                        ${item.price.toFixed(2)}
-                      </span>
+            <div className="mt-6 divide-y divide-slate-100">
+              {menu.map((dish) => (
+                <div key={dish.id} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-700 font-black text-sm">
+                      {dish.category[0]}
                     </div>
-                    <p className="mt-1 text-xs text-slate-500 line-clamp-1">{item.description}</p>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-black text-slate-900">{dish.name}</h4>
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                          {dish.category}
+                        </span>
+                        <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                          {dish.tag}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 line-clamp-1">{dish.description}</p>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-center">
-                    {/* Availability Toggle */}
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-black text-slate-900">
+                      ${dish.price.toFixed(2)}
+                    </span>
+
                     <button
                       type="button"
-                      onClick={() => toggleAvailability(item.id)}
-                      className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider transition ${
-                        item.available
+                      onClick={() => toggleAvailability(dish.id)}
+                      className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                        dish.available
                           ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
                           : "bg-rose-100 text-rose-800 hover:bg-rose-200"
                       }`}
                     >
-                      {item.available ? "In Stock ✓" : "Sold Out ✕"}
+                      {dish.available ? "In Stock" : "Sold Out"}
                     </button>
 
-                    {/* Edit button */}
                     <button
                       type="button"
-                      onClick={() => setEditingItem(item)}
-                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                      onClick={() => setEditingItem(dish)}
+                      className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200"
                     >
                       Edit
                     </button>
 
-                    {/* Delete button */}
                     <button
                       type="button"
-                      onClick={() => handleDeleteItem(item.id)}
-                      className="rounded-full p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                      title="Delete dish"
+                      onClick={() => handleDeleteItem(dish.id)}
+                      className="rounded-lg bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-600 hover:bg-rose-100"
                     >
-                      🗑️
+                      Delete
                     </button>
                   </div>
                 </div>
@@ -299,12 +346,10 @@ export default function OwnerView({
             </div>
           </div>
 
-          {/* Add New Dish Form */}
+          {/* Quick Add Dish Form */}
           <div className="h-fit rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-black text-slate-900">Add New Dish</h3>
-            <p className="text-xs text-slate-500">
-              Instantly publishes to all guest phones in real time
-            </p>
+            <h3 className="text-lg font-black text-slate-900">Add New Dish</h3>
+            <p className="text-xs text-slate-500">Instantly publishes to guest menus</p>
 
             <form onSubmit={handleAddItem} className="mt-5 space-y-4">
               <div>
@@ -312,9 +357,9 @@ export default function OwnerView({
                 <input
                   type="text"
                   required
+                  placeholder="e.g. Truffle Mushroom Risotto"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Black Truffle Risotto"
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500 focus:bg-white"
                 />
               </div>
@@ -340,10 +385,10 @@ export default function OwnerView({
                     type="number"
                     step="0.5"
                     required
+                    placeholder="18.50"
                     value={form.price}
                     onChange={(e) => setForm({ ...form, price: e.target.value })}
-                    placeholder="18.50"
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500 focus:bg-white"
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500"
                   />
                 </div>
               </div>
@@ -353,21 +398,20 @@ export default function OwnerView({
                   <label className="block text-xs font-bold text-slate-700">Tag / Badge</label>
                   <input
                     type="text"
+                    placeholder="Chef Pick"
                     value={form.tag}
                     onChange={(e) => setForm({ ...form, tag: e.target.value })}
-                    placeholder="Popular, Chef Pick, etc."
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500 focus:bg-white"
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700">Est. Prep Time (min)</label>
+                  <label className="block text-xs font-bold text-slate-700">Prep Time (mins)</label>
                   <input
                     type="number"
                     value={form.prepTime}
                     onChange={(e) => setForm({ ...form, prepTime: e.target.value })}
-                    placeholder="12"
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500 focus:bg-white"
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500"
                   />
                 </div>
               </div>
@@ -375,17 +419,17 @@ export default function OwnerView({
               <div>
                 <label className="block text-xs font-bold text-slate-700">Description</label>
                 <textarea
-                  rows={3}
+                  rows={2}
+                  placeholder="Ingredients, preparation style..."
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  placeholder="Ingredients, preparation details, flavor profile..."
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500 focus:bg-white"
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full rounded-full bg-slate-900 py-3 text-sm font-black text-white shadow-md transition hover:bg-slate-800 active:scale-95"
+                className="w-full rounded-full bg-slate-900 py-3 text-xs font-black text-white hover:bg-slate-800 transition shadow-md"
               >
                 + Add Dish to Live Menu
               </button>
@@ -394,132 +438,269 @@ export default function OwnerView({
         </div>
       )}
 
-      {/* Subtab 2: Dynamic QR Generator & Print Stands */}
+      {/* Subtab 2: QR Generator & Stands */}
       {subTab === "qr" && (
-        <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-          {/* QR Stand Preview */}
-          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-              <div>
-                <h3 className="text-xl font-black text-slate-900">Table QR Stand Preview</h3>
-                <p className="text-xs text-slate-500">
-                  Ready to print for acrylic table tents or laminated cards
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="rounded-full bg-amber-500 px-4 py-2 text-xs font-black text-slate-950 shadow transition hover:bg-amber-400 active:scale-95"
-              >
-                🖨️ Print Table Stand
-              </button>
-            </div>
-
-            {/* Tent Card Display */}
-            <div className="mt-8 flex justify-center">
-              <div
-                id="printable-qr-stand"
-                className="w-full max-w-sm rounded-[32px] border-4 border-slate-900 bg-white p-8 text-center shadow-xl"
-              >
-                <p className="text-xs font-black uppercase tracking-[0.25em] text-amber-600">
-                  Sunshine Bistro
-                </p>
-                <h1 className="mt-1 text-3xl font-black text-slate-950">
-                  Table {selectedTableForQr}
-                </h1>
-                <p className="mt-1 text-xs text-slate-500">
-                  Scan with your smartphone camera to browse menu & order directly
-                </p>
-
-                <div className="my-6 flex justify-center">
-                  <QRCodeView
-                    value={currentQrUrl}
-                    size={220}
-                    label={`Token: ${currentToken}`}
-                  />
-                </div>
-
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-[11px] text-slate-600 font-semibold">
-                  ✨ Encrypted Table Stand • Anti-Tamper Token Protected
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* QR Configuration Controls */}
-          <div className="h-fit rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm space-y-5">
-            <h3 className="text-xl font-black text-slate-900">QR Configuration</h3>
+        <div className="grid gap-8 lg:grid-cols-[400px_1fr]">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+            <h3 className="text-lg font-black text-slate-900">QR Code Customizer</h3>
+            <p className="text-xs text-slate-500">
+              Generate cryptographic QR codes with tamper-resistant tokens
+            </p>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700">Select Table Number</label>
-              <div className="mt-2 grid grid-cols-4 gap-2">
+              <label className="block text-xs font-bold text-slate-700">Select Table Stand</label>
+              <select
+                value={selectedTableForQr}
+                onChange={(e) => setSelectedTableForQr(Number(e.target.value))}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-900 outline-none"
+              >
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((num) => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => setSelectedTableForQr(num)}
-                    className={`rounded-xl py-2.5 text-xs font-black transition ${
-                      selectedTableForQr === num
-                        ? "bg-slate-900 text-white shadow"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    }`}
-                  >
-                    Table {num}
-                  </button>
+                  <option key={num} value={num}>
+                    Table {num} Stand
+                  </option>
                 ))}
-              </div>
+              </select>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700">Restaurant Web Domain</label>
+              <label className="block text-xs font-bold text-slate-700">Production Base URL</label>
               <input
                 type="text"
                 value={domainUrl}
                 onChange={(e) => setDomainUrl(e.target.value)}
-                placeholder="https://sunshinebistro.com"
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm outline-none focus:border-amber-500 focus:bg-white"
+                placeholder="https://yourdomain.com"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-mono text-slate-900 outline-none focus:border-amber-500"
               />
-              <p className="mt-1 text-[11px] text-slate-400">
-                This URL is encoded into each table&apos;s physical QR code stand.
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3.5 space-y-1 text-xs">
+              <span className="font-bold text-slate-700">Active QR Stand Token:</span>
+              <p className="font-mono text-[11px] text-amber-700 break-all">{currentToken}</p>
+              <p className="text-[10px] text-slate-400 pt-1">
+                Resolved URL: <span className="font-mono">{currentQrUrl}</span>
               </p>
             </div>
 
-            {/* Anti-Prank Security Controls */}
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                    Table {selectedTableForQr} Security Token
-                  </h4>
-                  <p className="text-[11px] font-mono text-amber-700 font-bold mt-0.5">
-                    {currentToken}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRotateToken}
-                  className="rounded-full bg-rose-50 border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition shadow-sm"
-                  title="Generate a new unguessable token for this table"
-                >
-                  🔄 Rotate Token
-                </button>
+            <button
+              type="button"
+              onClick={handleRotateToken}
+              className="w-full rounded-full border border-amber-300 bg-amber-50 py-2.5 text-xs font-black text-amber-900 hover:bg-amber-100 transition"
+            >
+              🔄 Rotate Token (Invalidates Old Stand)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="w-full rounded-full bg-slate-900 py-3 text-xs font-black text-white hover:bg-slate-800 transition shadow-md"
+            >
+              🖨️ Print Acrylic Stand Card
+            </button>
+          </div>
+
+          {/* Scannable Physical Tent Card Preview */}
+          <div className="space-y-4">
+            <div className="rounded-[28px] border-2 border-dashed border-amber-300 bg-gradient-to-b from-[#fffaf1] to-white p-8 text-center shadow-lg">
+              <div className="inline-block rounded-2xl bg-amber-500 px-4 py-1 text-xs font-black uppercase tracking-widest text-slate-950 mb-4">
+                Sunshine Bistro Table Stand
               </div>
-              <p className="text-[10px] text-slate-500">
-                Rotating invalidates any previously photographed QR codes. Guests cannot tamper with URLs to order from another table.
+
+              <h2 className="text-3xl font-black tracking-tight text-slate-900">
+                TABLE {selectedTableForQr}
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Scan with your smartphone camera to view live menu & order
               </p>
+
+              <div className="my-6 flex justify-center">
+                <div className="rounded-3xl border-4 border-slate-900 bg-white p-6 shadow-2xl">
+                  <QRCodeView value={currentQrUrl} size={220} />
+                </div>
+              </div>
+
+              <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-1.5 text-xs font-semibold text-slate-700">
+                <span>🔒 Cryptographically Locked Stand</span>
+                <span>•</span>
+                <span className="font-mono text-[10px]">{currentToken}</span>
+              </div>
             </div>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-900">
               <p className="font-bold">💡 Production Deployment Tip:</p>
               <p className="mt-1 leading-relaxed">
-                When deploying live on Vercel or your custom domain, set the domain above and print a batch of stands for your tables. Guests scanning will automatically open with their table pre-selected.
+                When deploying live on Vercel, set your Vercel URL above (e.g. <code className="font-mono">https://tabletapp-xxx.vercel.app</code>) and print your batch of table stands.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Subtab 3: Analytics */}
+      {/* Subtab 3: GPS Geofence & Anti-Tamper Security */}
+      {subTab === "security" && (
+        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-xl font-black text-slate-900">📍 GPS Geofencing & Anti-Tamper Security</h3>
+              <p className="text-xs text-slate-500">
+                Prevents remote prank orders from outside the restaurant by verifying the guest is physically seated on-premises
+              </p>
+            </div>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold ${
+                geoForm.enabled
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              {geoForm.enabled ? "Geofence ACTIVE" : "Geofence DISABLED"}
+            </span>
+          </div>
+
+          {gpsToast && (
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-xs font-bold text-emerald-900">
+              {gpsToast}
+            </div>
+          )}
+
+          <form onSubmit={handleSaveGeoSettings} className="space-y-6 max-w-2xl">
+            {/* Geofence Toggle */}
+            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <p className="text-sm font-black text-slate-900">Enable GPS Geofencing Guard</p>
+                <p className="text-xs text-slate-500">
+                  When enabled, customers must be within the restaurant perimeter to place orders.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={geoForm.enabled}
+                onChange={(e) => setGeoForm({ ...geoForm, enabled: e.target.checked })}
+                className="h-6 w-6 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+              />
+            </div>
+
+            {/* Strict Mode Toggle */}
+            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <p className="text-sm font-black text-slate-900">Strict Enforcement Mode</p>
+                <p className="text-xs text-slate-500">
+                  {geoForm.strictMode
+                    ? "Strict: Completely block orders from outside perimeter."
+                    : "Permissive: Allow orders but flag ticket in KDS with ⚠️ Remote Order warning."}
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={geoForm.strictMode}
+                onChange={(e) => setGeoForm({ ...geoForm, strictMode: e.target.checked })}
+                className="h-6 w-6 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+              />
+            </div>
+
+            {/* Coordinates Config */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-bold text-slate-700">Restaurant Latitude</label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  required
+                  value={geoForm.latitude}
+                  onChange={(e) => setGeoForm({ ...geoForm, latitude: Number(e.target.value) })}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700">Restaurant Longitude</label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  required
+                  value={geoForm.longitude}
+                  onChange={(e) => setGeoForm({ ...geoForm, longitude: Number(e.target.value) })}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            {/* Allowed Perimeter Radius */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700">
+                Allowed Radius: {geoForm.radiusMeters} meters
+              </label>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Distance radius from restaurant center (covers tables, patio, and terrace)
+              </p>
+              <div className="flex gap-2">
+                {[50, 100, 150, 250, 500].map((radius) => (
+                  <button
+                    key={radius}
+                    type="button"
+                    onClick={() => setGeoForm({ ...geoForm, radiusMeters: radius })}
+                    className={`rounded-xl px-4 py-2 text-xs font-bold transition ${
+                      geoForm.radiusMeters === radius
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                  >
+                    {radius}m
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick Location Capture & Test Tools */}
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isCapturingGps}
+                onClick={handleCaptureCurrentLocation}
+                className="flex items-center gap-2 rounded-full border border-amber-400 bg-amber-50 px-4 py-2.5 text-xs font-black text-amber-950 hover:bg-amber-100 transition shadow-sm"
+              >
+                <span>🎯</span>
+                <span>{isCapturingGps ? "Capturing GPS..." : "Set to My Current GPS Location"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTestDistance}
+                className="flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-50 transition"
+              >
+                <span>📏</span>
+                <span>Test My Distance Now</span>
+              </button>
+            </div>
+
+            {testDistanceResult && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-900">
+                {testDistanceResult}
+              </div>
+            )}
+
+            <div className="border-t border-slate-100 pt-4">
+              <button
+                type="submit"
+                className="rounded-full bg-slate-900 px-6 py-3 text-xs font-black text-white hover:bg-slate-800 transition shadow-md"
+              >
+                Save Geofence Settings ✓
+              </button>
+            </div>
+          </form>
+
+          {/* Explanation Banner */}
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-950 space-y-2">
+            <p className="font-bold">🛡️ How This Solves The "Photo of QR Code" Prank:</p>
+            <ul className="list-disc pl-5 space-y-1 text-slate-700 leading-relaxed">
+              <li>When a customer scans a table QR code and takes a photo home, they are miles away from the restaurant.</li>
+              <li>When they tap "Place Order" from home, their phone&apos;s GPS reports their location, TableTapp detects they are outside the {geoForm.radiusMeters}m perimeter, and blocks the order ticket.</li>
+              <li>You never have to reprint physical acrylic stand QR codes!</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Subtab 4: Analytics */}
       {subTab === "analytics" && (
         <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm space-y-6">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
@@ -556,7 +737,9 @@ export default function OwnerView({
                     className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                       order.status === "Served"
                         ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-800"
+                        : order.status === "Rejected"
+                          ? "bg-rose-100 text-rose-800"
+                          : "bg-amber-100 text-amber-800"
                     }`}
                   >
                     {order.status}
