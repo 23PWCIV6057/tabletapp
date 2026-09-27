@@ -1,4 +1,4 @@
-import { MenuItem, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
+import { MenuCategory, MenuItem, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY =
@@ -29,7 +29,7 @@ export async function fetchOrdersFromSupabase(): Promise<OrderCard[] | null> {
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/orders?select=*,order_items(*)&order=created_at.desc&limit=50`,
-      { headers: getHeaders() }
+      { headers: getHeaders(), cache: "no-store" }
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -64,7 +64,7 @@ export async function fetchServicesFromSupabase(): Promise<ServiceRequest[] | nu
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/service_requests?select=*&order=created_at.desc&limit=30`,
-      { headers: getHeaders() }
+      { headers: getHeaders(), cache: "no-store" }
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -75,6 +75,30 @@ export async function fetchServicesFromSupabase(): Promise<ServiceRequest[] | nu
       status: rec.status as ServiceRequest["status"],
       createdAt: new Date(rec.created_at as string).getTime(),
       resolvedAt: rec.resolved_at ? new Date(rec.resolved_at as string).getTime() : undefined,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchMenuFromSupabase(): Promise<MenuItem[] | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/menu_items?select=*,categories(name)&order=id.asc`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.map((rec: Record<string, unknown>) => ({
+      id: Number(rec.id),
+      name: rec.name as string,
+      category: ((rec.categories as { name?: string })?.name || "Starters") as MenuCategory,
+      description: (rec.description as string) || "",
+      price: Number(rec.price),
+      tag: (rec.tag as string) || "Popular",
+      available: Boolean(rec.available),
+      prepTimeMinutes: Number(rec.prep_time_minutes) || 10,
     }));
   } catch {
     return null;
@@ -200,7 +224,76 @@ export async function syncServiceResolveToSupabase(requestId: string): Promise<b
   }
 }
 
-// Realtime WebSocket Subscription
+export async function syncMenuItemUpdateToSupabase(item: MenuItem): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/menu_items?id=eq.${item.id}`, {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        tag: item.tag,
+        available: item.available,
+        prep_time_minutes: item.prepTimeMinutes || 10,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function syncNewMenuItemToSupabase(
+  item: MenuItem,
+  restaurantId = "0bd4a4f2-4d44-4f0c-a03c-e10252610e7a"
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const catRes = await fetch(`${SUPABASE_URL}/rest/v1/categories?name=eq.${item.category}`, {
+      headers: getHeaders(),
+    });
+    let categoryId: string | null = null;
+    if (catRes.ok) {
+      const cats = await catRes.json();
+      if (cats.length > 0) categoryId = cats[0].id;
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/menu_items`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        restaurant_id: restaurantId,
+        category_id: categoryId,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        tag: item.tag,
+        available: item.available,
+        prep_time_minutes: item.prepTimeMinutes || 10,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function syncDeleteMenuItemFromSupabase(itemId: number): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/menu_items?id=eq.${itemId}`, {
+      method: "DELETE",
+      headers: getHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Realtime WebSocket Subscription with Auto-Reconnect & Phoenix CDC Protocol
 export function subscribeToSupabaseRealtime(onEvent: (event: SyncEvent) => void): () => void {
   if (!isSupabaseConfigured() || typeof window === "undefined") {
     return () => {};
@@ -208,81 +301,126 @@ export function subscribeToSupabaseRealtime(onEvent: (event: SyncEvent) => void)
 
   let ws: WebSocket | null = null;
   let heartbeat: NodeJS.Timeout | null = null;
+  let reconnectTimeout: NodeJS.Timeout | null = null;
+  let isClosedExplicitly = false;
 
-  try {
-    const wsUrl = `${SUPABASE_URL.replace(/^http/, "ws")}/realtime/v1/websocket?apikey=${SUPABASE_ANON_KEY}&vsn=1.0.0`;
-    ws = new WebSocket(wsUrl);
+  function connect() {
+    try {
+      const wsUrl = `${SUPABASE_URL.replace(/^http/, "ws")}/realtime/v1/websocket?apikey=${SUPABASE_ANON_KEY}&vsn=1.0.0`;
+      ws = new WebSocket(wsUrl);
 
-    ws.onopen = () => {
-      // Join realtime channel
-      ws?.send(
-        JSON.stringify({
-          topic: "realtime:public",
-          event: "phx_join",
-          payload: { config: { broadcast: { self: false } } },
-          ref: "1",
-        })
-      );
-
-      // Heartbeat every 25s
-      heartbeat = setInterval(() => {
-        if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: "2" }));
-        }
-      }, 25000);
-    };
-
-    ws.onmessage = (msg) => {
-      try {
-        const data = JSON.parse(msg.data);
-        if (data.event === "INSERT" && data.payload?.table === "orders") {
-          const rec = data.payload.record;
-          const order: OrderCard = {
-            id: rec.id,
-            orderNumber: rec.order_number,
-            table: rec.table_number,
-            items: [], // Populated or refreshed
-            subtotal: Number(rec.subtotal),
-            serviceFee: Number(rec.service_fee),
-            total: Number(rec.total),
-            status: rec.status,
-            createdAt: new Date(rec.created_at).getTime(),
-            updatedAt: new Date(rec.updated_at).getTime(),
-          };
-          onEvent({ type: "NEW_ORDER", payload: order });
-        } else if (data.event === "UPDATE" && data.payload?.table === "orders") {
-          const rec = data.payload.record;
-          onEvent({
-            type: "ORDER_STATUS_CHANGED",
+      ws.onopen = () => {
+        // Join realtime channel with Postgres Changes CDC
+        ws?.send(
+          JSON.stringify({
+            topic: "realtime:public:*",
+            event: "phx_join",
             payload: {
-              orderId: rec.id,
-              status: rec.status,
-              updatedAt: new Date(rec.updated_at).getTime(),
+              config: {
+                postgres_changes: [
+                  { event: "*", schema: "public", table: "orders" },
+                  { event: "*", schema: "public", table: "service_requests" },
+                  { event: "*", schema: "public", table: "menu_items" },
+                ],
+              },
             },
-          });
-        } else if (data.event === "INSERT" && data.payload?.table === "service_requests") {
-          const rec = data.payload.record;
-          onEvent({
-            type: "NEW_SERVICE_REQUEST",
-            payload: {
-              id: rec.id,
-              table: rec.table_number,
-              type: rec.type,
-              status: rec.status,
-              createdAt: new Date(rec.created_at).getTime(),
-            },
-          });
+            ref: "1",
+          })
+        );
+
+        // Keep-alive heartbeat every 20 seconds
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ topic: "phoenix", event: "heartbeat", payload: {}, ref: "2" }));
+          }
+        }, 20000);
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          // Handle Postgres CDC events
+          if (data.event === "postgres_changes") {
+            const change = data.payload?.data;
+            if (!change) return;
+
+            if (change.table === "orders") {
+              if (change.type === "INSERT") {
+                // Fetch full order to ensure order items are populated
+                fetchOrdersFromSupabase().then((orders) => {
+                  if (orders && orders.length > 0) {
+                    const target = orders.find((o) => o.id === change.record.id) || orders[0];
+                    onEvent({ type: "NEW_ORDER", payload: target });
+                  }
+                });
+              } else if (change.type === "UPDATE") {
+                const rec = change.record;
+                onEvent({
+                  type: "ORDER_STATUS_CHANGED",
+                  payload: {
+                    orderId: rec.id,
+                    status: rec.status,
+                    updatedAt: new Date(rec.updated_at || Date.now()).getTime(),
+                  },
+                });
+              }
+            } else if (change.table === "service_requests") {
+              if (change.type === "INSERT") {
+                const rec = change.record;
+                onEvent({
+                  type: "NEW_SERVICE_REQUEST",
+                  payload: {
+                    id: rec.id,
+                    table: rec.table_number,
+                    type: rec.type,
+                    status: rec.status,
+                    createdAt: new Date(rec.created_at).getTime(),
+                  },
+                });
+              } else if (change.type === "UPDATE" && change.record.status === "Resolved") {
+                onEvent({
+                  type: "SERVICE_RESOLVED",
+                  payload: {
+                    requestId: change.record.id,
+                    resolvedAt: new Date(change.record.resolved_at || Date.now()).getTime(),
+                  },
+                });
+              }
+            } else if (change.table === "menu_items") {
+              fetchMenuFromSupabase().then((newMenu) => {
+                if (newMenu) onEvent({ type: "MENU_UPDATED", payload: newMenu });
+              });
+            }
+          }
+        } catch {
+          // Ignore malformed frames
         }
-      } catch {
-        // Ignore malformed frames
+      };
+
+      ws.onerror = () => {
+        // Will trigger onclose and reconnect
+      };
+
+      ws.onclose = () => {
+        if (!isClosedExplicitly) {
+          reconnectTimeout = setTimeout(connect, 3000);
+        }
+      };
+    } catch {
+      if (!isClosedExplicitly) {
+        reconnectTimeout = setTimeout(connect, 5000);
       }
-    };
-  } catch (err) {
-    console.warn("Could not connect to Supabase Realtime:", err);
+    }
   }
 
+  connect();
+
   return () => {
+    isClosedExplicitly = true;
     if (heartbeat) clearInterval(heartbeat);
+    if (reconnectTimeout) clearTimeout(reconnectTimeout);
     if (ws) ws.close();
   };
 }

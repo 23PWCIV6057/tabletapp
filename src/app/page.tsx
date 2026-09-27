@@ -25,10 +25,12 @@ import {
 } from "@/lib/tables";
 import { getStoredGeoConfig, saveStoredGeoConfig } from "@/lib/geo";
 import {
+  fetchMenuFromSupabase,
   fetchOrdersFromSupabase,
   fetchServicesFromSupabase,
   isSupabaseConfigured,
   subscribeToSupabaseRealtime,
+  syncMenuItemUpdateToSupabase,
   syncOrderStatusToSupabase,
   syncOrderToSupabase,
   syncOrderTransferToSupabase,
@@ -107,8 +109,10 @@ export default function Home() {
     setTableSessions(getStoredTableSessions());
     setGeoConfig(getStoredGeoConfig());
 
-    // Hydrate latest state from Supabase Cloud if configured
+    // High-Frequency Real-time Auto-Sync Loop (Every 2.5s) across all devices
+    let pollingTimer: NodeJS.Timeout | null = null;
     if (isSupabaseConfigured()) {
+      // 1. Initial immediate hydration
       fetchOrdersFromSupabase().then((cloudOrders) => {
         if (cloudOrders && cloudOrders.length > 0) {
           setOrders(cloudOrders);
@@ -121,6 +125,108 @@ export default function Home() {
           saveStoredServices(cloudServices);
         }
       });
+      fetchMenuFromSupabase().then((cloudMenu) => {
+        if (cloudMenu && cloudMenu.length > 0) {
+          setMenu(cloudMenu);
+          saveStoredMenu(cloudMenu);
+        }
+      });
+
+      // 2. Continuous 2.5s heartbeat poll for instant cross-device updates
+      pollingTimer = setInterval(async () => {
+        try {
+          // Sync Orders
+          const cloudOrders = await fetchOrdersFromSupabase();
+          if (cloudOrders) {
+            setOrders((prev) => {
+              const prevMap = new Map(prev.map((o) => [o.id, o]));
+              let hasChanges = false;
+              let hasNewIncoming = false;
+
+              for (const co of cloudOrders) {
+                const existing = prevMap.get(co.id);
+                if (!existing) {
+                  hasChanges = true;
+                  hasNewIncoming = true;
+                } else if (
+                  existing.status !== co.status ||
+                  existing.table !== co.table ||
+                  existing.updatedAt !== co.updatedAt
+                ) {
+                  hasChanges = true;
+                }
+              }
+
+              if (!hasChanges && cloudOrders.length === prev.length) {
+                return prev;
+              }
+
+              if (hasNewIncoming) {
+                playOrderChime();
+              }
+
+              saveStoredOrders(cloudOrders);
+              return cloudOrders;
+            });
+          }
+
+          // Sync Services
+          const cloudServices = await fetchServicesFromSupabase();
+          if (cloudServices) {
+            setServiceRequests((prev) => {
+              const prevMap = new Map(prev.map((s) => [s.id, s]));
+              let hasChanges = false;
+              let hasNewPending = false;
+
+              for (const cs of cloudServices) {
+                const existing = prevMap.get(cs.id);
+                if (!existing && cs.status === "Pending") {
+                  hasChanges = true;
+                  hasNewPending = true;
+                } else if (existing && existing.status !== cs.status) {
+                  hasChanges = true;
+                }
+              }
+
+              if (!hasChanges && cloudServices.length === prev.length) {
+                return prev;
+              }
+
+              if (hasNewPending) {
+                playAlertChime();
+              }
+
+              saveStoredServices(cloudServices);
+              return cloudServices;
+            });
+          }
+
+          // Sync Menu
+          const cloudMenu = await fetchMenuFromSupabase();
+          if (cloudMenu && cloudMenu.length > 0) {
+            setMenu((prev) => {
+              const isDiff =
+                prev.length !== cloudMenu.length ||
+                prev.some((p) => {
+                  const cm = cloudMenu.find((m) => m.id === p.id);
+                  return (
+                    !cm ||
+                    cm.price !== p.price ||
+                    cm.available !== p.available ||
+                    cm.name !== p.name
+                  );
+                });
+              if (isDiff) {
+                saveStoredMenu(cloudMenu);
+                return cloudMenu;
+              }
+              return prev;
+            });
+          }
+        } catch {
+          // Ignore transient network errors
+        }
+      }, 2500);
     }
 
     // Listen for broadcast sync from other browser tabs / devices
@@ -272,6 +378,7 @@ export default function Home() {
     });
 
     return () => {
+      if (pollingTimer) clearInterval(pollingTimer);
       unsubscribe();
       unsubscribeSupabase();
     };
@@ -282,6 +389,11 @@ export default function Home() {
     setMenu(newMenu);
     saveStoredMenu(newMenu);
     broadcastSyncEvent({ type: "MENU_UPDATED", payload: newMenu });
+
+    // Sync menu items to Supabase Cloud
+    for (const item of newMenu) {
+      syncMenuItemUpdateToSupabase(item);
+    }
   };
 
   const handleUpdateGeoConfig = (newConfig: GeoFenceConfig) => {

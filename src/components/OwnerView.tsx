@@ -62,9 +62,10 @@ export default function OwnerView({
   // Edit Item Modal State
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
 
-  // Dynamic Metrics Calculation
-  const totalSales = orders.reduce((sum, o) => sum + (o.status !== "Archived" && o.status !== "Rejected" ? o.total : 0), 0);
-  const completedOrders = orders.filter((o) => o.status === "Served");
+  // Dynamic Metrics Calculation: All non-rejected orders count towards revenue!
+  const totalSales = orders.reduce((sum, o) => sum + (o.status !== "Rejected" ? o.total : 0), 0);
+  // Fulfilled orders include both currently served orders and concluded/cleared dining sessions!
+  const completedOrders = orders.filter((o) => o.status === "Served" || o.status === "Archived");
   const aov = orders.length > 0 ? totalSales / orders.length : 0;
   const activeTablesCount = new Set(orders.filter((o) => o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected").map((o) => o.table)).size;
 
@@ -735,14 +736,14 @@ export default function OwnerView({
                   <span className="font-bold text-slate-900">${order.total.toFixed(2)}</span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      order.status === "Served"
+                      order.status === "Served" || order.status === "Archived"
                         ? "bg-emerald-100 text-emerald-800"
                         : order.status === "Rejected"
                           ? "bg-rose-100 text-rose-800"
                           : "bg-amber-100 text-amber-800"
                     }`}
                   >
-                    {order.status}
+                    {order.status === "Archived" ? "Fulfilled & Cleared ✅" : order.status === "Served" ? "Served ✅" : order.status}
                   </span>
                 </div>
               </div>
