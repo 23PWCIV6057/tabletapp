@@ -10,16 +10,34 @@ interface QRCodeViewProps {
   label?: string;
 }
 
-export default function QRCodeView({ value, size = 200, className = "", label }: QRCodeViewProps) {
-  const matrix = useMemo(() => {
+export default function QRCodeView({
+  value,
+  size = 200,
+  className = "",
+  label,
+}: QRCodeViewProps) {
+  const qrRender = useMemo(() => {
     try {
-      return generateQRCodeMatrix(value);
+      const matrix = generateQRCodeMatrix(value);
+      const dimension = matrix.length;
+      // ISO/IEC 18004 standard requires a 4-module quiet zone around the QR code
+      const padding = 4;
+      const totalDim = dimension + padding * 2;
+      const segments: string[] = [];
+      for (let r = 0; r < dimension; r++) {
+        for (let c = 0; c < dimension; c++) {
+          if (matrix[r][c]) {
+            segments.push(`M${c + padding},${r + padding}h1v1h-1z`);
+          }
+        }
+      }
+      return { totalDim, pathData: segments.join("") };
     } catch {
       return null;
     }
   }, [value]);
 
-  if (!matrix) {
+  if (!qrRender) {
     return (
       <div
         style={{ width: size, height: size }}
@@ -30,34 +48,23 @@ export default function QRCodeView({ value, size = 200, className = "", label }:
     );
   }
 
-  const dimension = matrix.length;
-  const padding = 2;
-  const totalDim = dimension + padding * 2;
-
   return (
     <div className={`flex flex-col items-center ${className}`}>
       <svg
-        viewBox={`0 0 ${totalDim} ${totalDim}`}
+        viewBox={`0 0 ${qrRender.totalDim} ${qrRender.totalDim}`}
         width={size}
         height={size}
-        className="rounded-2xl bg-white p-3 shadow-md"
+        shapeRendering="crispEdges"
+        role="img"
+        aria-label={`QR Code for ${value}`}
+        className="rounded-2xl bg-white p-2 shadow-md"
       >
-        {matrix.map((row, r) =>
-          row.map((cell, c) =>
-            cell ? (
-              <rect
-                key={`${r}-${c}`}
-                x={c + padding}
-                y={r + padding}
-                width={1}
-                height={1}
-                fill="#0f172a"
-              />
-            ) : null
-          )
-        )}
+        <rect width={qrRender.totalDim} height={qrRender.totalDim} fill="#ffffff" />
+        <path d={qrRender.pathData} fill="#000000" />
       </svg>
-      {label && <p className="mt-2 text-xs font-semibold tracking-wide text-slate-500">{label}</p>}
+      {label && (
+        <p className="mt-2 text-xs font-semibold tracking-wide text-slate-500">{label}</p>
+      )}
     </div>
   );
 }

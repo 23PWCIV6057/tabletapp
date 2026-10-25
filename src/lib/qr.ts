@@ -1,7 +1,7 @@
 /**
  * Zero-dependency ISO/IEC 18004 compliant QR Code Generator (TypeScript)
  * Supports Versions 1–10 (Byte mode, ECC Level M) with full multi-block
- * Reed-Solomon error correction and codeword interleaving.
+ * Reed-Solomon error correction, codeword interleaving, and exact function reservation.
  */
 
 type QRMatrix = boolean[][];
@@ -24,17 +24,18 @@ function gfMul(x: number, y: number): number {
   return EXP_TABLE[LOG_TABLE[x] + LOG_TABLE[y]];
 }
 
+// Returns generator polynomial coefficients [g_{d-1}, g_{d-2}, ..., g_0] (excluding leading x^d = 1)
 function rsGeneratorPoly(degree: number): Uint8Array {
   let poly = new Uint8Array([1]);
   for (let i = 0; i < degree; i++) {
     const next = new Uint8Array(poly.length + 1);
     for (let j = 0; j < poly.length; j++) {
-      next[j] ^= gfMul(poly[j], EXP_TABLE[i]);
-      next[j + 1] ^= poly[j];
+      next[j] ^= poly[j];
+      next[j + 1] ^= gfMul(poly[j], EXP_TABLE[i]);
     }
     poly = next;
   }
-  return poly;
+  return poly.slice(1);
 }
 
 function rsComputeEcc(data: Uint8Array, numEcc: number): Uint8Array {
@@ -88,27 +89,14 @@ function getVersionInfoBits(version: number): number {
   return (version << 12) | rem;
 }
 
-// Compute 15-bit Format Information for ECC Level M (00) + given mask (0..7)
-function getFormatInfoBits(mask: number): number {
-  const data = (0b00 << 3) | mask; // 00 = Level M
-  let rem = data << 10;
-  const poly = 0b10100110111;
-  for (let i = 14; i >= 10; i--) {
-    if (rem & (1 << i)) {
-      rem ^= poly << (i - 10);
-    }
-  }
-  return ((data << 10) | rem) ^ 0b101010000010010;
-}
-
 export function generateQRCodeMatrix(text: string): QRMatrix {
   const utf8Bytes = new TextEncoder().encode(text);
   const dataLen = utf8Bytes.length;
 
-  // 1. Pick smallest fitting version (Versions 1–9 use 8-bit length in Byte mode; Version 10 uses 16-bit)
+  // 1. Pick smallest fitting version
   let version = 1;
   while (version <= 10) {
-    const headerBytes = version <= 9 ? 2 : 3; // 4-bit mode + 8/16-bit length + 4-bit terminator
+    const headerBytes = version <= 9 ? 2 : 3;
     if (QR_SPECS[version].totalData >= dataLen + headerBytes) {
       break;
     }
@@ -156,7 +144,7 @@ export function generateQRCodeMatrix(text: string): QRMatrix {
     dataCodewords[i] = byteVal;
   }
 
-  // 3. Split into blocks, compute Reed-Solomon ECC per block, and interleave!
+  // 3. Split into blocks, compute Reed-Solomon ECC per block, and interleave
   const dataBlocks: Uint8Array[] = [];
   const eccBlocks: Uint8Array[] = [];
   let offset = 0;
@@ -221,12 +209,11 @@ export function generateQRCodeMatrix(text: string): QRMatrix {
   addFinderPattern(0, size - 7);
   addFinderPattern(size - 7, 0);
 
-  // Alignment Patterns (placed BEFORE timing patterns so timing doesn't block alignment centers, skipping only finder overlaps)
+  // Alignment Patterns (skipping the 3 finder corners)
   if (spec.align.length > 0) {
     const coords = spec.align;
     for (let i = 0; i < coords.length; i++) {
       for (let j = 0; j < coords.length; j++) {
-        // Skip the 3 corners that overlap with Finder Patterns
         if (
           (i === 0 && j === 0) ||
           (i === 0 && j === coords.length - 1) ||
@@ -253,17 +240,22 @@ export function generateQRCodeMatrix(text: string): QRMatrix {
     if (!isFunction[i][6]) setModule(i, 6, i % 2 === 0, true);
   }
 
-  // Dark Module
-  setModule(4 * version + 9, 8, true, true);
+  // Dark Module at row = 4 * version + 9 (which is size - 8), col = 8
+  setModule(size - 8, 8, true, true);
 
-  // Reserve Format Information areas
-  for (let i = 0; i < 9; i++) {
+  // Reserve Format Information areas (EXACT module counts per ISO/IEC 18004)
+  // Top-left: row 8 cols 0..8 and col 8 rows 0..8
+  for (let i = 0; i <= 8; i++) {
     if (!isFunction[8][i]) setModule(8, i, false, true);
     if (!isFunction[i][8]) setModule(i, 8, false, true);
   }
+  // Top-right: row 8, cols (size - 8) .. (size - 1) [8 modules]
   for (let i = 0; i < 8; i++) {
-    if (!isFunction[8][size - 1 - i]) setModule(8, size - 1 - i, false, true);
-    if (!isFunction[size - 1 - i][8]) setModule(size - 1 - i, 8, false, true);
+    setModule(8, size - 8 + i, false, true);
+  }
+  // Bottom-left: col 8, rows (size - 7) .. (size - 1) [7 modules]
+  for (let i = 0; i < 7; i++) {
+    setModule(size - 7 + i, 8, false, true);
   }
 
   // Version Information (for Versions >= 7)
@@ -305,22 +297,18 @@ export function generateQRCodeMatrix(text: string): QRMatrix {
     upward = !upward;
   }
 
-  // 6. Write Format Information (Mask 0, ECC Level M)
-  // ISO/IEC 18004: bit 0 is LSB, bit 14 is MSB
-  const fBits = getFormatInfoBits(0);
-  // Top-left around finder:
-  // Bits 0..5 go down col 8 at rows 0..5; bit 6 at (7,8); bit 7 at (8,8); bit 8 at (8,7); bits 9..14 at row 8 cols 5..0
-  for (let i = 0; i <= 5; i++) matrix[i][8] = ((fBits >> i) & 1) === 1;
-  matrix[7][8] = ((fBits >> 6) & 1) === 1;
-  matrix[8][8] = ((fBits >> 7) & 1) === 1;
-  matrix[8][7] = ((fBits >> 8) & 1) === 1;
-  for (let i = 9; i <= 14; i++) matrix[8][14 - i] = ((fBits >> i) & 1) === 1;
+  // 6. Write Format Information (Mask 0, ECC Level M: 101010000010010 from MSB bit 14 to LSB bit 0)
+  const formatBits = [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0];
+  // Top-left copy:
+  for (let i = 0; i < 6; i++) matrix[8][i] = formatBits[i] === 1;
+  matrix[8][7] = formatBits[6] === 1;
+  matrix[8][8] = formatBits[7] === 1;
+  matrix[7][8] = formatBits[8] === 1;
+  for (let i = 0; i < 6; i++) matrix[5 - i][8] = formatBits[9 + i] === 1;
 
-  // Top-right & Bottom-left copies:
-  // Bits 0..7 along row 8 from col size-1 down to size-8
-  for (let i = 0; i <= 7; i++) matrix[8][size - 1 - i] = ((fBits >> i) & 1) === 1;
-  // Bits 8..14 along col 8 from row size-7 up to size-1
-  for (let i = 8; i <= 14; i++) matrix[size - 15 + i][8] = ((fBits >> i) & 1) === 1;
+  // Bottom-left (7 modules: bits 14..8) & Top-right (8 modules: bits 7..0) copies:
+  for (let i = 0; i < 7; i++) matrix[size - 1 - i][8] = formatBits[i] === 1;
+  for (let i = 0; i < 8; i++) matrix[8][size - 8 + i] = formatBits[7 + i] === 1;
 
   return matrix;
 }
