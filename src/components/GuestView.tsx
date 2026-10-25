@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { GeoFenceConfig, MenuItem, OrderCard, OrderItem, ServiceType } from "@/types";
 import { verifyUserWithinRestaurant } from "@/lib/geo";
 import { verifyPinServer } from "@/lib/auth";
@@ -37,7 +38,7 @@ interface GuestViewProps {
     meta?: { geoVerified?: boolean; distanceMeters?: number }
   ) => void;
   onRequestService: (type: ServiceType) => void;
-  onOpenStaffLogin: (role: "kitchen" | "owner") => void;
+  onOpenStaffLogin?: (role: "kitchen" | "owner") => void;
   geoConfig?: GeoFenceConfig;
 }
 
@@ -968,29 +969,19 @@ export default function GuestView({
         </div>
       )}
 
-      {/* Discrete Staff Portal Gatekeeper in Footer */}
+      {/* Discrete Staff Portal Link in Footer */}
       <footer className="mt-16 border-t border-slate-200/80 pt-8 text-center">
         <p className="text-xs text-slate-500">
-          TableTapp Platform • Sunshine Bistro Pilot
+          Sunshine Bistro • Powered by TableTapp Dining
         </p>
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-4 text-xs font-semibold text-slate-600">
-          <button
-            type="button"
-            onClick={() => onOpenStaffLogin("kitchen")}
-            className="inline-flex min-h-10 items-center gap-1.5 px-2 hover:text-slate-900 transition underline underline-offset-4 decoration-slate-300"
+        <div className="mt-2 flex items-center justify-center">
+          <Link
+            href="/staff"
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
           >
-            <LockIcon size={13} />
-            <span>Kitchen Display System (Staff PIN)</span>
-          </button>
-          <span aria-hidden="true">•</span>
-          <button
-            type="button"
-            onClick={() => onOpenStaffLogin("owner")}
-            className="inline-flex min-h-10 items-center gap-1.5 px-2 hover:text-slate-900 transition underline underline-offset-4 decoration-slate-300"
-          >
-            <LockIcon size={13} />
-            <span>Restaurant Management (Manager PIN)</span>
-          </button>
+            <LockIcon size={12} />
+            <span>Staff &amp; Kitchen Portal</span>
+          </Link>
         </div>
       </footer>
     </div>
