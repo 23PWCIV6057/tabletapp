@@ -37,8 +37,16 @@ export default function OwnerView({
 
   // Selected table for QR code generator
   const [selectedTableForQr, setSelectedTableForQr] = useState<number>(1);
-  const [domainUrl, setDomainUrl] = useState<string>("https://sunshinebistro.com");
+  const [domainUrl, setDomainUrl] = useState<string>(() =>
+    typeof window !== "undefined" ? window.location.origin : "https://tabletapp.vercel.app"
+  );
   const [, setTokenVersion] = useState<number>(0);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.origin) {
+      setDomainUrl(window.location.origin);
+    }
+  }, []);
 
   // GPS Security State
   const [geoForm, setGeoForm] = useState<GeoFenceConfig>(geoConfig);

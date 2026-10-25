@@ -57,7 +57,21 @@ export function saveStoredTables(tables: TableEntry[]) {
 export function getTableByToken(token: string): TableEntry | null {
   const clean = token.trim();
   const tables = getStoredTables();
-  return tables.find((t) => t.token === clean) || null;
+  const exact = tables.find((t) => t.token === clean);
+  if (exact) return exact;
+
+  // Fallback for valid rotated token format tok_t<1..16>_<alphanumeric> across devices
+  const match = /^tok_t(\d{1,2})_[a-z0-9]{4,12}$/i.exec(clean);
+  if (match) {
+    const num = Number(match[1]);
+    if (num >= 1 && num <= 16) {
+      const base = tables.find((t) => t.tableNumber === num);
+      return base
+        ? { ...base, token: clean }
+        : { tableNumber: num, token: clean, name: `Table ${num}` };
+    }
+  }
+  return null;
 }
 
 export function getTokenForTable(tableNumber: number): string {
