@@ -1,4 +1,6 @@
 import { TableOccupancyStatus, TableSession } from "@/types";
+import { broadcastSyncEvent } from "./sync";
+import { syncTableTokenToSupabase } from "./supabase";
 
 export type TableEntry = {
   tableNumber: number;
@@ -74,6 +76,8 @@ export function rotateTokenForTable(tableNumber: number): string {
   );
 
   saveStoredTables(updated);
+  broadcastSyncEvent({ type: "TABLE_TOKEN_ROTATED", payload: { tableNumber, token: newToken } });
+  syncTableTokenToSupabase(tableNumber, newToken);
   return newToken;
 }
 

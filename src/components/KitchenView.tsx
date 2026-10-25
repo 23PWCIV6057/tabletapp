@@ -1,8 +1,33 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { OrderCard, OrderStatus, ServiceRequest, TableOccupancyStatus, TableSession } from "@/types";
-import { playAlertChime, playOrderChime, unlockAudio } from "@/lib/sound";
+import {
+  OrderCard,
+  OrderStatus,
+  ServiceRequest,
+  TableOccupancyStatus,
+  TableSession,
+} from "@/types";
+import {
+  isAudioMuted,
+  playOrderChime,
+  setAudioMuted,
+  unlockAudio,
+} from "@/lib/sound";
+import {
+  AlertTriangleIcon,
+  ArrowLeftRightIcon,
+  BellIcon,
+  BellOffIcon,
+  CheckCircleIcon,
+  ChefHatIcon,
+  ClockIcon,
+  LockIcon,
+  MapPinIcon,
+  SparklesIcon,
+  UtensilsIcon,
+  XIcon,
+} from "./Icons";
 
 interface KitchenViewProps {
   orders: OrderCard[];
@@ -31,7 +56,7 @@ export default function KitchenView({
 }: KitchenViewProps) {
   const [filterTab, setFilterTab] = useState<"active" | "history">("active");
   const [currentTime, setCurrentTime] = useState(Date.now());
-  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(() => !isAudioMuted());
   const [transferringOrderId, setTransferringOrderId] = useState<string | null>(null);
   const [selectedFloorTable, setSelectedFloorTable] = useState<number | null>(null);
 
@@ -41,31 +66,42 @@ export default function KitchenView({
     return () => clearInterval(timer);
   }, []);
 
-  const activeOrders = orders.filter((o) => o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected");
-  const historyOrders = orders.filter((o) => o.status === "Served" || o.status === "Archived" || o.status === "Rejected");
+  const activeOrders = orders.filter(
+    (o) => o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected"
+  );
+  const historyOrders = orders.filter(
+    (o) => o.status === "Served" || o.status === "Archived" || o.status === "Rejected"
+  );
   const pendingRequests = serviceRequests.filter((r) => r.status === "Pending");
 
   const getElapsedMinutes = (timestamp: number) => {
     return Math.max(0, Math.floor((currentTime - timestamp) / (60 * 1000)));
   };
 
+  const handleToggleAudio = () => {
+    unlockAudio();
+    const nextEnabled = !audioEnabled;
+    setAudioEnabled(nextEnabled);
+    setAudioMuted(!nextEnabled);
+  };
+
   const handleTestSound = () => {
     unlockAudio();
-    playOrderChime();
+    playOrderChime(true);
   };
 
   return (
     <div className="space-y-6">
       {/* KDS Staff Header */}
       <header className="flex flex-col gap-4 rounded-[28px] border border-slate-800 bg-slate-950 p-5 text-white shadow-xl md:flex-row md:items-center md:justify-between sm:p-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500 text-2xl font-black text-slate-950 shadow-md">
-            🍳
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500 text-slate-950 shadow-md">
+            <ChefHatIcon size={24} />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <h2 className="text-xl font-black tracking-tight sm:text-2xl">
+              <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
                 Kitchen Display System (KDS)
               </h2>
             </div>
@@ -75,27 +111,26 @@ export default function KitchenView({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Audio Chime Controls */}
           <button
             type="button"
-            onClick={() => {
-              unlockAudio();
-              setAudioEnabled(!audioEnabled);
-            }}
-            className={`flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
+            onClick={handleToggleAudio}
+            aria-pressed={audioEnabled}
+            className={`inline-flex min-h-11 items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
               audioEnabled
-                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                 : "bg-slate-800 text-slate-400 border border-slate-700"
             }`}
           >
-            <span>{audioEnabled ? "🔔 Audio: ON" : "🔕 Audio: OFF"}</span>
+            {audioEnabled ? <BellIcon size={15} /> : <BellOffIcon size={15} />}
+            <span>{audioEnabled ? "Audio: ON" : "Audio: OFF"}</span>
           </button>
 
           <button
             type="button"
             onClick={handleTestSound}
-            className="rounded-full bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+            className="min-h-11 rounded-full bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
           >
             Test Chime
           </button>
@@ -104,9 +139,10 @@ export default function KitchenView({
           <button
             type="button"
             onClick={onLockSession}
-            className="rounded-full bg-rose-500/10 border border-rose-500/30 px-4 py-2 text-xs font-bold text-rose-400 hover:bg-rose-500/20"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 px-4 py-2 text-xs font-bold text-rose-300 hover:bg-rose-500/20 transition"
           >
-            🔒 Lock KDS
+            <LockIcon size={14} />
+            <span>Lock KDS</span>
           </button>
         </div>
       </header>
@@ -115,31 +151,40 @@ export default function KitchenView({
       <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
-            <span className="text-base font-black text-slate-900">🍽️ Dining Floor Table Lifecycle</span>
-            <span className="text-xs font-bold text-slate-400">(16 Tables)</span>
+            <UtensilsIcon size={18} className="text-amber-700" />
+            <h3 className="font-display text-base font-bold text-slate-900">
+              Dining Floor Table Lifecycle
+            </h3>
+            <span className="text-xs font-bold text-slate-500">(16 Tables)</span>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold">
-            <span className="flex items-center gap-1.5 text-slate-500">
-              <span className="h-2 w-2 rounded-full bg-slate-300" /> Vacant
+          <div className="flex flex-wrap items-center gap-3 text-xs font-bold">
+            <span className="flex items-center gap-1.5 text-slate-600">
+              <span className="h-2.5 w-2.5 rounded-full bg-slate-300" /> Vacant
             </span>
-            <span className="flex items-center gap-1.5 text-blue-600">
-              <span className="h-2 w-2 rounded-full bg-blue-500" /> Seated
+            <span className="flex items-center gap-1.5 text-blue-700">
+              <span className="h-2.5 w-2.5 rounded-full bg-blue-500" /> Seated
             </span>
-            <span className="flex items-center gap-1.5 text-amber-600">
-              <span className="h-2 w-2 rounded-full bg-amber-500" /> Cooking
+            <span className="flex items-center gap-1.5 text-amber-800">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Cooking
             </span>
-            <span className="flex items-center gap-1.5 text-purple-600">
-              <span className="h-2 w-2 rounded-full bg-purple-500" /> Bill Due
+            <span className="flex items-center gap-1.5 text-purple-800">
+              <span className="h-2.5 w-2.5 rounded-full bg-purple-500" /> Bill Due
             </span>
           </div>
         </div>
 
-        {/* 16 Table Buttons */}
+        {/* 16 Table Buttons (44px+ touch targets) */}
         <div className="mt-3.5 grid grid-cols-4 gap-2 sm:grid-cols-8 lg:grid-cols-16">
           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((num) => {
             const session = tableSessions[num];
-            const hasActiveOrders = orders.some((o) => o.table === num && (o.status === "New" || o.status === "Preparing" || o.status === "Ready"));
-            const hasBillRequest = serviceRequests.some((r) => r.table === num && r.status === "Pending" && r.type === "Request Bill");
+            const hasActiveOrders = orders.some(
+              (o) =>
+                o.table === num &&
+                (o.status === "New" || o.status === "Preparing" || o.status === "Ready")
+            );
+            const hasBillRequest = serviceRequests.some(
+              (r) => r.table === num && r.status === "Pending" && r.type === "Request Bill"
+            );
 
             const derivedStatus: TableOccupancyStatus = hasBillRequest
               ? "BILL_REQUESTED"
@@ -153,24 +198,26 @@ export default function KitchenView({
               <button
                 key={num}
                 type="button"
+                aria-label={`Table ${num} (${derivedStatus})`}
+                aria-pressed={isSelected}
                 onClick={() => setSelectedFloorTable(isSelected ? null : num)}
-                className={`relative flex flex-col items-center justify-center rounded-xl border p-2 transition text-center ${
+                className={`relative flex min-h-12 flex-col items-center justify-center rounded-xl border p-2 transition text-center ${
                   derivedStatus === "BILL_REQUESTED"
                     ? "border-purple-300 bg-purple-50 text-purple-950 font-black ring-2 ring-purple-400"
                     : derivedStatus === "ACTIVE_ORDER"
                       ? "border-amber-300 bg-amber-50 text-amber-950 font-black ring-2 ring-amber-400"
                       : derivedStatus === "SEATED"
                         ? "border-blue-300 bg-blue-50 text-blue-950 font-bold"
-                        : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                        : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
                 } ${isSelected ? "scale-105 shadow-md" : ""}`}
               >
-                <span className="text-xs font-black">T{num}</span>
+                <span className="tabular-nums text-xs font-black">T{num}</span>
                 <span
-                  className={`mt-1 h-1.5 w-1.5 rounded-full ${
+                  className={`mt-1 h-2 w-2 rounded-full ${
                     derivedStatus === "BILL_REQUESTED"
                       ? "bg-purple-600 animate-pulse"
                       : derivedStatus === "ACTIVE_ORDER"
-                        ? "bg-amber-500 animate-ping"
+                        ? "bg-amber-500 animate-pulse"
                         : derivedStatus === "SEATED"
                           ? "bg-blue-500"
                           : "bg-slate-300"
@@ -183,15 +230,17 @@ export default function KitchenView({
 
         {/* Selected Table Quick Actions Bar */}
         {selectedFloorTable !== null && (
-          <div className="mt-4 flex flex-wrap items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs">
             <div className="flex items-center gap-2">
-              <span className="font-black text-slate-900">Table {selectedFloorTable} Selected:</span>
-              <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-[11px] font-bold uppercase text-slate-700">
+              <span className="font-black text-slate-900">
+                Table {selectedFloorTable} Selected:
+              </span>
+              <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-bold uppercase text-slate-700">
                 Current: {tableSessions[selectedFloorTable]?.status || "VACANT"}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {onUpdateTableStatus && (
                 <button
                   type="button"
@@ -199,7 +248,7 @@ export default function KitchenView({
                     onUpdateTableStatus(selectedFloorTable, "SEATED");
                     setSelectedFloorTable(null);
                   }}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 font-bold text-white hover:bg-blue-500 transition"
+                  className="min-h-10 rounded-xl bg-blue-600 px-3.5 py-2 font-bold text-white hover:bg-blue-500 transition"
                 >
                   Seat Table
                 </button>
@@ -212,7 +261,7 @@ export default function KitchenView({
                     onClearTable(selectedFloorTable);
                     setSelectedFloorTable(null);
                   }}
-                  className="rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white hover:bg-emerald-500 transition"
+                  className="min-h-10 rounded-xl bg-emerald-600 px-3.5 py-2 font-bold text-white hover:bg-emerald-500 transition"
                 >
                   Clear Table / Mark Vacant
                 </button>
@@ -220,10 +269,11 @@ export default function KitchenView({
 
               <button
                 type="button"
+                aria-label="Close table action bar"
                 onClick={() => setSelectedFloorTable(null)}
-                className="rounded-lg bg-slate-200 px-2.5 py-1.5 font-bold text-slate-600 hover:bg-slate-300"
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-200 font-bold text-slate-700 hover:bg-slate-300"
               >
-                ✕
+                <XIcon size={16} />
               </button>
             </div>
           </div>
@@ -236,14 +286,14 @@ export default function KitchenView({
         <div className="space-y-4">
           {/* Sub Navigation */}
           <div className="flex items-center justify-between">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setFilterTab("active")}
-                className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+                className={`min-h-11 rounded-full px-4 py-2 text-xs font-bold transition ${
                   filterTab === "active"
                     ? "bg-slate-900 text-white shadow-md"
-                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                    : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
                 }`}
               >
                 Active Kitchen Queue ({activeOrders.length})
@@ -251,10 +301,10 @@ export default function KitchenView({
               <button
                 type="button"
                 onClick={() => setFilterTab("history")}
-                className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+                className={`min-h-11 rounded-full px-4 py-2 text-xs font-bold transition ${
                   filterTab === "history"
                     ? "bg-slate-900 text-white shadow-md"
-                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                    : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
                 }`}
               >
                 Completed & Served ({historyOrders.length})
@@ -264,10 +314,14 @@ export default function KitchenView({
 
           {filterTab === "active" && activeOrders.length === 0 && (
             <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center">
-              <p className="text-3xl">👨‍🍳</p>
-              <p className="mt-2 text-base font-bold text-slate-800">All caught up!</p>
-              <p className="text-xs text-slate-500">
-                No orders waiting in the active queue.
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
+                <ChefHatIcon size={24} />
+              </div>
+              <p className="font-display mt-3 text-base font-bold text-slate-900">
+                All caught up!
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                No orders waiting in the active kitchen queue.
               </p>
             </div>
           )}
@@ -296,15 +350,16 @@ export default function KitchenView({
                   <div>
                     {/* Vacant Table Security Alert */}
                     {isVacantWarning && order.status === "New" && (
-                      <div className="mb-3 rounded-xl border border-rose-300 bg-rose-50 p-2.5 text-xs text-rose-950">
+                      <div className="mb-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-950">
                         <div className="flex items-center gap-1.5 font-black text-rose-700">
-                          <span>⚠️</span>
+                          <AlertTriangleIcon size={15} />
                           <span>Table was VACANT when ordered!</span>
                         </div>
-                        <p className="mt-0.5 text-[11px] text-rose-800">
-                          Verify physical guests are seated at Table {order.table} before firing ticket.
+                        <p className="mt-1 text-xs text-rose-800">
+                          Verify physical guests are seated at Table {order.table} before
+                          firing ticket.
                         </p>
-                        <div className="mt-2 flex gap-2">
+                        <div className="mt-2.5 flex flex-wrap gap-2">
                           {onUpdateTableStatus && (
                             <button
                               type="button"
@@ -312,18 +367,20 @@ export default function KitchenView({
                                 onUpdateTableStatus(order.table, "SEATED");
                                 onUpdateOrderStatus(order.id, "Preparing");
                               }}
-                              className="rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-rose-700"
+                              className="min-h-10 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 transition"
                             >
-                              Verify & Seat Table ✓
+                              Verify & Seat Table
                             </button>
                           )}
                           {onRejectOrder && (
                             <button
                               type="button"
-                              onClick={() => onRejectOrder(order.id, "Table was vacant / prank order")}
-                              className="rounded-lg bg-slate-200 px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-300"
+                              onClick={() =>
+                                onRejectOrder(order.id, "Table was vacant / prank order")
+                              }
+                              className="min-h-10 rounded-xl bg-slate-200 px-3 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-300 transition"
                             >
-                              Reject Ticket ✕
+                              Reject Ticket
                             </button>
                           )}
                         </div>
@@ -332,13 +389,13 @@ export default function KitchenView({
 
                     {/* Ticket Header */}
                     <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white">
+                      <div className="flex items-center gap-2.5">
+                        <span className="tabular-nums flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white">
                           T{order.table}
                         </span>
                         <div>
-                          <div className="flex items-center gap-1.5">
-                            <h4 className="text-sm font-black text-slate-900">
+                          <div className="flex items-center gap-2">
+                            <h4 className="tabular-nums text-sm font-black text-slate-900">
                               #{order.orderNumber}
                             </h4>
                             {/* Staff Table Transfer Trigger */}
@@ -349,13 +406,14 @@ export default function KitchenView({
                                   transferringOrderId === order.id ? null : order.id
                                 )
                               }
-                              className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 hover:bg-amber-100 hover:text-amber-800"
+                              className="inline-flex min-h-8 items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-amber-100 hover:text-amber-900 transition"
                               title="Move ticket to another table"
                             >
-                              ⇄ Move
+                              <ArrowLeftRightIcon size={12} />
+                              <span>Move</span>
                             </button>
                           </div>
-                          <span className="text-[10px] text-slate-400">
+                          <span className="text-xs text-slate-500">
                             {new Date(order.createdAt).toLocaleTimeString([], {
                               hour: "2-digit",
                               minute: "2-digit",
@@ -367,46 +425,54 @@ export default function KitchenView({
                       <div className="flex flex-col items-end gap-1">
                         <div className="flex items-center gap-1.5">
                           <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                            className={`tabular-nums inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
                               isUrgent
                                 ? "bg-rose-100 text-rose-800 animate-pulse"
                                 : isWarning
-                                  ? "bg-amber-100 text-amber-800"
+                                  ? "bg-amber-100 text-amber-900"
                                   : "bg-slate-100 text-slate-700"
                             }`}
                           >
-                            ⏱ {elapsedMins}m
+                            <ClockIcon size={12} />
+                            <span>{elapsedMins}m</span>
                           </span>
 
                           <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-black uppercase tracking-wider ${
                               order.status === "New"
-                                ? "bg-rose-100 text-rose-700 font-black"
+                                ? "bg-rose-100 text-rose-800"
                                 : order.status === "Preparing"
-                                  ? "bg-amber-100 text-amber-700 font-black"
+                                  ? "bg-amber-100 text-amber-900"
                                   : order.status === "Ready"
-                                    ? "bg-blue-100 text-blue-700 font-black"
+                                    ? "bg-blue-100 text-blue-800"
                                     : order.status === "Rejected"
-                                      ? "bg-rose-100 text-rose-800 font-black"
-                                      : "bg-emerald-100 text-emerald-700 font-black"
+                                      ? "bg-rose-100 text-rose-800"
+                                      : "bg-emerald-100 text-emerald-800"
                             }`}
                           >
-                            {order.status === "Archived" ? "Fulfilled & Cleared ✅" : order.status === "Served" ? "Served ✅" : order.status}
+                            {order.status === "Archived"
+                              ? "Cleared"
+                              : order.status === "Served"
+                                ? "Served"
+                                : order.status}
                           </span>
                         </div>
 
                         {/* Location Verification Tag */}
                         {order.geoVerified !== undefined && (
                           <span
-                            className={`text-[9px] font-bold ${
+                            className={`inline-flex items-center gap-1 text-xs font-bold ${
                               order.geoVerified
-                                ? "text-emerald-600"
-                                : "text-rose-600 font-black animate-pulse"
+                                ? "text-emerald-700"
+                                : "text-rose-700 font-black animate-pulse"
                             }`}
                           >
-                            {order.geoVerified
-                              ? `📍 On-Premises (${order.distanceMeters ?? 15}m)`
-                              : `⚠️ Remote/Unverified (${order.distanceMeters ?? "?"}m)`}
+                            <MapPinIcon size={12} />
+                            <span>
+                              {order.geoVerified
+                                ? `On-Premises (${order.distanceMeters ?? 15}m)`
+                                : `Remote/Unverified (${order.distanceMeters ?? "?"}m)`}
+                            </span>
                           </span>
                         )}
                       </div>
@@ -414,11 +480,11 @@ export default function KitchenView({
 
                     {/* Transfer Dropdown Strip */}
                     {transferringOrderId === order.id && (
-                      <div className="my-2.5 rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-xs">
-                        <p className="font-bold text-amber-900 mb-1.5">
+                      <div className="my-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs">
+                        <p className="font-bold text-amber-950 mb-2">
                           Reassign Ticket #{order.orderNumber} to:
                         </p>
-                        <div className="flex flex-wrap gap-1">
+                        <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8">
                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
                             .filter((num) => num !== order.table)
                             .map((num) => (
@@ -429,17 +495,18 @@ export default function KitchenView({
                                   onTransferOrder(order.id, num);
                                   setTransferringOrderId(null);
                                 }}
-                                className="rounded-md bg-white border border-amber-300 px-2 py-1 font-black text-amber-900 hover:bg-amber-500 hover:text-white transition"
+                                className="tabular-nums min-h-9 rounded-lg bg-white border border-amber-300 px-2 py-1.5 font-black text-amber-950 hover:bg-amber-500 hover:text-slate-950 transition"
                               >
                                 T{num}
                               </button>
                             ))}
                           <button
                             type="button"
+                            aria-label="Cancel transfer"
                             onClick={() => setTransferringOrderId(null)}
-                            className="rounded-md bg-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-300"
+                            className="flex min-h-9 items-center justify-center rounded-lg bg-slate-200 px-2 py-1.5 text-slate-700 hover:bg-slate-300"
                           >
-                            ✕
+                            <XIcon size={14} />
                           </button>
                         </div>
                       </div>
@@ -448,24 +515,29 @@ export default function KitchenView({
                     {/* Order Line Items */}
                     <div className="mt-4 space-y-2.5">
                       {order.items.map((item, idx) => (
-                        <div key={idx} className="border-b border-slate-50 pb-2 text-sm last:border-0 last:pb-0">
+                        <div
+                          key={idx}
+                          className="border-b border-slate-100 pb-2.5 text-sm last:border-0 last:pb-0"
+                        >
                           <div className="flex items-start justify-between">
                             <div className="font-extrabold text-slate-900">
-                              <span className="text-amber-600 mr-1.5">{item.quantity}×</span>
+                              <span className="tabular-nums text-amber-700 mr-1.5">
+                                {item.quantity}×
+                              </span>
                               {item.name}
                             </div>
-                            <span className="text-xs font-semibold text-slate-400">
+                            <span className="tabular-nums text-xs font-semibold text-slate-500">
                               ${item.totalPrice.toFixed(2)}
                             </span>
                           </div>
 
                           {/* Selected Custom Modifiers */}
                           {item.selectedModifiers.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1 pl-5">
+                            <div className="mt-1 flex flex-wrap gap-1.5 pl-5">
                               {item.selectedModifiers.map((mod, mi) => (
                                 <span
                                   key={mi}
-                                  className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-700"
+                                  className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700"
                                 >
                                   +{mod.optionName}
                                 </span>
@@ -475,8 +547,9 @@ export default function KitchenView({
 
                           {/* Special Chef Instructions */}
                           {item.specialInstructions && (
-                            <div className="mt-1 rounded-md bg-amber-50/80 px-2 py-1 text-[11px] font-semibold text-amber-900">
-                              ⚠️ Note: {item.specialInstructions}
+                            <div className="mt-1.5 flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-950">
+                              <AlertTriangleIcon size={13} className="text-amber-700" />
+                              <span>Note: {item.specialInstructions}</span>
                             </div>
                           )}
                         </div>
@@ -484,15 +557,16 @@ export default function KitchenView({
                     </div>
                   </div>
 
-                  {/* Action Bar (Bumping tickets) */}
-                  <div className="mt-5 border-t border-slate-100 pt-3">
+                  {/* Action Bar (Bumping tickets - 44px min touch targets) */}
+                  <div className="mt-5 border-t border-slate-100 pt-3.5">
                     {order.status === "New" && (
                       <button
                         type="button"
                         onClick={() => onUpdateOrderStatus(order.id, "Preparing")}
-                        className="w-full rounded-2xl bg-amber-500 py-2.5 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-400 active:scale-95"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-amber-500 py-2.5 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-400 active:scale-95"
                       >
-                        Start Preparing 👨‍🍳
+                        <ChefHatIcon size={16} />
+                        <span>Start Preparing</span>
                       </button>
                     )}
 
@@ -500,9 +574,10 @@ export default function KitchenView({
                       <button
                         type="button"
                         onClick={() => onUpdateOrderStatus(order.id, "Ready")}
-                        className="w-full rounded-2xl bg-blue-600 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-blue-500 active:scale-95"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-blue-500 active:scale-95"
                       >
-                        Mark Ready to Serve 🛎️
+                        <BellIcon size={16} />
+                        <span>Mark Ready to Serve</span>
                       </button>
                     )}
 
@@ -510,22 +585,27 @@ export default function KitchenView({
                       <button
                         type="button"
                         onClick={() => onUpdateOrderStatus(order.id, "Served")}
-                        className="w-full rounded-2xl bg-emerald-600 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-emerald-500 active:scale-95"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-emerald-500 active:scale-95"
                       >
-                        Complete / Handed Off ✅
+                        <CheckCircleIcon size={16} />
+                        <span>Complete / Handed Off</span>
                       </button>
                     )}
 
                     {order.status === "Served" && (
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-bold text-emerald-600">
-                          Served at {new Date(order.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        <span className="text-xs font-bold text-emerald-700">
+                          Served at{" "}
+                          {new Date(order.updatedAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
                         {onClearTable && (
                           <button
                             type="button"
                             onClick={() => onClearTable(order.table)}
-                            className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-200"
+                            className="min-h-10 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200 transition"
                           >
                             Clear Table {order.table}
                           </button>
@@ -542,10 +622,10 @@ export default function KitchenView({
         {/* Right Column: Service Calls Side Rail */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+            <h3 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
               <span>Service Alerts</span>
               {pendingRequests.length > 0 && (
-                <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[10px] font-bold text-white animate-pulse">
+                <span className="font-sans rounded-full bg-rose-600 px-2.5 py-0.5 text-xs font-bold text-white animate-pulse">
                   {pendingRequests.length} Pending
                 </span>
               )}
@@ -553,26 +633,34 @@ export default function KitchenView({
           </div>
 
           {pendingRequests.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-slate-200 bg-white p-8 text-center text-slate-400">
-              <p className="text-2xl">✨</p>
-              <p className="mt-1 text-xs font-bold text-slate-600">All tables happy</p>
-              <p className="text-[10px]">No pending waiter or refill requests.</p>
+            <div className="rounded-[24px] border border-dashed border-slate-200 bg-white p-8 text-center text-slate-500">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+                <SparklesIcon size={20} />
+              </div>
+              <p className="mt-2 text-xs font-bold text-slate-700">All tables happy</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                No pending waiter or refill requests.
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
               {pendingRequests.map((req) => (
                 <div
                   key={req.id}
-                  className="flex items-center justify-between rounded-2xl border-2 border-amber-400 bg-amber-50/70 p-4 shadow-sm"
+                  className="flex items-center justify-between gap-3 rounded-2xl border-2 border-amber-400 bg-amber-50/70 p-4 shadow-sm"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-white">
+                    <span className="tabular-nums flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-xs font-black text-white">
                       T{req.table}
                     </span>
                     <div>
                       <p className="text-sm font-black text-slate-900">{req.type}</p>
-                      <p className="text-[10px] text-slate-500">
-                        Requested {new Date(req.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      <p className="text-xs text-slate-600">
+                        Requested{" "}
+                        {new Date(req.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </p>
                     </div>
                   </div>
@@ -580,9 +668,10 @@ export default function KitchenView({
                   <button
                     type="button"
                     onClick={() => onResolveService(req.id)}
-                    className="rounded-xl bg-slate-950 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800 transition"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-slate-950 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800 transition"
                   >
-                    Resolve ✓
+                    <CheckCircleIcon size={14} />
+                    <span>Resolve</span>
                   </button>
                 </div>
               ))}

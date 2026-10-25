@@ -1,4 +1,5 @@
-import { MenuCategory, MenuItem, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
+import { MenuCategory, MenuItem, ModifierGroup, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
+import { initialMenuData } from "./sync";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY =
@@ -53,6 +54,10 @@ export async function fetchOrdersFromSupabase(): Promise<OrderCard[] | null> {
       status: rec.status as OrderStatus,
       createdAt: new Date(rec.created_at as string).getTime(),
       updatedAt: new Date(rec.updated_at as string).getTime(),
+      geoVerified: rec.geo_verified !== undefined ? Boolean(rec.geo_verified) : undefined,
+      distanceMeters: rec.distance_meters !== undefined && rec.distance_meters !== null ? Number(rec.distance_meters) : undefined,
+      tableWasVacant: rec.table_was_vacant !== undefined ? Boolean(rec.table_was_vacant) : undefined,
+      rejectedReason: (rec.rejected_reason as string) || undefined,
     }));
   } catch {
     return null;
@@ -85,20 +90,80 @@ export async function fetchMenuFromSupabase(): Promise<MenuItem[] | null> {
   if (!isSupabaseConfigured()) return null;
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/menu_items?select=*,categories(name)&order=id.asc`,
+      `${SUPABASE_URL}/rest/v1/menu_items?select=*,categories(name),modifier_groups(*,modifier_options(*))&order=id.asc`,
       { headers: getHeaders(), cache: "no-store" }
     );
     if (!res.ok) return null;
     const data = await res.json();
-    return data.map((rec: Record<string, unknown>) => ({
-      id: Number(rec.id),
-      name: rec.name as string,
-      category: ((rec.categories as { name?: string })?.name || "Starters") as MenuCategory,
-      description: (rec.description as string) || "",
-      price: Number(rec.price),
-      tag: (rec.tag as string) || "Popular",
-      available: Boolean(rec.available),
-      prepTimeMinutes: Number(rec.prep_time_minutes) || 10,
+    return data.map((rec: Record<string, unknown>) => {
+      const name = rec.name as string;
+      const rawGroups = (rec.modifier_groups as Record<string, unknown>[]) || [];
+      let modifierGroups: ModifierGroup[] | undefined =
+        rawGroups.length > 0
+          ? rawGroups.map((g) => ({
+              id: String(g.id),
+              name: String(g.name),
+              required: Boolean(g.required),
+              options: ((g.modifier_options as Record<string, unknown>[]) || []).map((opt) => ({
+                id: String(opt.id),
+                name: String(opt.name),
+                priceDelta: Number(opt.price_delta) || 0,
+              })),
+            }))
+          : undefined;
+
+      if (!modifierGroups) {
+        const fallback = initialMenuData.find(
+          (m) => m.id === Number(rec.id) || m.name.toLowerCase() === name.toLowerCase()
+        );
+        if (fallback?.modifierGroups) {
+          modifierGroups = fallback.modifierGroups;
+        }
+      }
+
+      return {
+        id: Number(rec.id),
+        name,
+        category: ((rec.categories as { name?: string })?.name || "Starters") as MenuCategory,
+        description: (rec.description as string) || "",
+        price: Number(rec.price),
+        tag: (rec.tag as string) || "Popular",
+        available: Boolean(rec.available),
+        prepTimeMinutes: Number(rec.prep_time_minutes) || 10,
+        modifierGroups,
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function syncTableTokenToSupabase(tableNumber: number, newToken: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.${tableNumber}`, {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify({ qr_code_token: newToken }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchTableTokensFromSupabase(): Promise<{ tableNumber: number; token: string }[] | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?select=table_number,qr_code_token`, {
+      headers: getHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.map((r: Record<string, unknown>) => ({
+      tableNumber: Number(r.table_number),
+      token: String(r.qr_code_token),
     }));
   } catch {
     return null;

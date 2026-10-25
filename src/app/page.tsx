@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GeoFenceConfig, MenuItem, OrderCard, OrderItem, OrderStatus, ServiceRequest, ServiceType, TableOccupancyStatus, TableSession, UserRole } from "@/types";
+import {
+  GeoFenceConfig,
+  MenuItem,
+  OrderCard,
+  OrderItem,
+  OrderStatus,
+  ServiceRequest,
+  ServiceType,
+  TableOccupancyStatus,
+  TableSession,
+  UserRole,
+} from "@/types";
 import {
   broadcastSyncEvent,
   getStoredMenu,
@@ -16,10 +27,11 @@ import { clearAuthSession, getAuthState } from "@/lib/auth";
 import {
   clearTableFloorSession,
   getActiveGuestSession,
+  getStoredTables,
   getStoredTableSessions,
   getTableByToken,
   getTokenForTable,
-  saveStoredTableSessions,
+  saveStoredTables,
   setActiveGuestSession,
   updateTableStatus,
 } from "@/lib/tables";
@@ -28,9 +40,12 @@ import {
   fetchMenuFromSupabase,
   fetchOrdersFromSupabase,
   fetchServicesFromSupabase,
+  fetchTableTokensFromSupabase,
   isSupabaseConfigured,
   subscribeToSupabaseRealtime,
+  syncDeleteMenuItemFromSupabase,
   syncMenuItemUpdateToSupabase,
+  syncNewMenuItemToSupabase,
   syncOrderStatusToSupabase,
   syncOrderToSupabase,
   syncOrderTransferToSupabase,
@@ -38,11 +53,36 @@ import {
   syncServiceResolveToSupabase,
 } from "@/lib/supabase";
 import { playAlertChime, playOrderChime } from "@/lib/sound";
+import {
+  ChartBarIcon,
+  ChefHatIcon,
+  LockIcon,
+  MapPinIcon,
+  UtensilsIcon,
+} from "@/components/Icons";
 import PinModal from "@/components/PinModal";
 import OfflineBanner from "@/components/OfflineBanner";
 import GuestView from "@/components/GuestView";
 import KitchenView from "@/components/KitchenView";
 import OwnerView from "@/components/OwnerView";
+
+function mergeCloudOrdersWithLocalMeta(
+  cloudOrders: OrderCard[],
+  localOrders: OrderCard[]
+): OrderCard[] {
+  const localMap = new Map(localOrders.map((o) => [o.id, o]));
+  return cloudOrders.map((co) => {
+    const loc = localMap.get(co.id);
+    if (!loc) return co;
+    return {
+      ...co,
+      geoVerified: co.geoVerified ?? loc.geoVerified,
+      distanceMeters: co.distanceMeters ?? loc.distanceMeters,
+      tableWasVacant: co.tableWasVacant ?? loc.tableWasVacant,
+      rejectedReason: co.rejectedReason ?? loc.rejectedReason,
+    };
+  });
+}
 
 export default function Home() {
   // Authentication & Gatekeeping
@@ -83,12 +123,11 @@ export default function Home() {
           });
         }
       } else if (urlTable && !isNaN(Number(urlTable))) {
-        // If guest has existing session, lock to it; otherwise allow param
         const existingSession = getActiveGuestSession();
         if (existingSession && getAuthState().authenticatedRole === "none") {
           setTableNumber(existingSession.tableNumber);
         } else {
-          setTableNumber(Number(urlTable));
+          setTableNumber(Math.min(16, Math.max(1, Number(urlTable))));
         }
       } else {
         const existingSession = getActiveGuestSession();
@@ -97,26 +136,29 @@ export default function Home() {
         }
       }
 
-      // Check existing auth session
       const auth = getAuthState();
       setAuthenticatedRole(auth.authenticatedRole);
     }
 
     // Load initial stored states
+    const localOrders = getStoredOrders();
     setMenu(getStoredMenu());
-    setOrders(getStoredOrders());
+    setOrders(localOrders);
     setServiceRequests(getStoredServices());
     setTableSessions(getStoredTableSessions());
     setGeoConfig(getStoredGeoConfig());
 
-    // High-Frequency Real-time Auto-Sync Loop (Every 2.5s) across all devices
+    // Real-time Auto-Sync Loop (Every 5s fallback) across all devices
     let pollingTimer: NodeJS.Timeout | null = null;
     if (isSupabaseConfigured()) {
       // 1. Initial immediate hydration
       fetchOrdersFromSupabase().then((cloudOrders) => {
         if (cloudOrders && cloudOrders.length > 0) {
-          setOrders(cloudOrders);
-          saveStoredOrders(cloudOrders);
+          setOrders((prev) => {
+            const merged = mergeCloudOrdersWithLocalMeta(cloudOrders, prev);
+            saveStoredOrders(merged);
+            return merged;
+          });
         }
       });
       fetchServicesFromSupabase().then((cloudServices) => {
@@ -131,11 +173,20 @@ export default function Home() {
           saveStoredMenu(cloudMenu);
         }
       });
+      fetchTableTokensFromSupabase().then((cloudTokens) => {
+        if (cloudTokens && cloudTokens.length > 0) {
+          const current = getStoredTables();
+          const updated = current.map((t) => {
+            const ct = cloudTokens.find((c) => c.tableNumber === t.tableNumber);
+            return ct ? { ...t, token: ct.token } : t;
+          });
+          saveStoredTables(updated);
+        }
+      });
 
-      // 2. Continuous 2.5s heartbeat poll for instant cross-device updates
+      // 2. Continuous 5s heartbeat poll for cross-device resilience
       pollingTimer = setInterval(async () => {
         try {
-          // Sync Orders
           const cloudOrders = await fetchOrdersFromSupabase();
           if (cloudOrders) {
             setOrders((prev) => {
@@ -165,12 +216,12 @@ export default function Home() {
                 playOrderChime();
               }
 
-              saveStoredOrders(cloudOrders);
-              return cloudOrders;
+              const merged = mergeCloudOrdersWithLocalMeta(cloudOrders, prev);
+              saveStoredOrders(merged);
+              return merged;
             });
           }
 
-          // Sync Services
           const cloudServices = await fetchServicesFromSupabase();
           if (cloudServices) {
             setServiceRequests((prev) => {
@@ -201,7 +252,6 @@ export default function Home() {
             });
           }
 
-          // Sync Menu
           const cloudMenu = await fetchMenuFromSupabase();
           if (cloudMenu && cloudMenu.length > 0) {
             setMenu((prev) => {
@@ -213,7 +263,9 @@ export default function Home() {
                     !cm ||
                     cm.price !== p.price ||
                     cm.available !== p.available ||
-                    cm.name !== p.name
+                    cm.name !== p.name ||
+                    cm.description !== p.description ||
+                    cm.tag !== p.tag
                   );
                 });
               if (isDiff) {
@@ -226,7 +278,7 @@ export default function Home() {
         } catch {
           // Ignore transient network errors
         }
-      }, 2500);
+      }, 5000);
     }
 
     // Listen for broadcast sync from other browser tabs / devices
@@ -234,7 +286,6 @@ export default function Home() {
       switch (event.type) {
         case "NEW_ORDER": {
           setOrders((prev) => [event.payload, ...prev]);
-          // Update table floor status to ACTIVE_ORDER
           setTableSessions((prev) => ({
             ...prev,
             [event.payload.table]: {
@@ -274,7 +325,9 @@ export default function Home() {
                 token: newToken,
                 activatedAt: Date.now(),
               });
-              setTransferNotice(`🔔 Your server moved your order from Table ${fromTable} to Table ${newTable}!`);
+              setTransferNotice(
+                `Your server moved your order from Table ${fromTable} to Table ${newTable}.`
+              );
               return newTable;
             }
             return currentTable;
@@ -285,7 +338,12 @@ export default function Home() {
           setOrders((prev) =>
             prev.map((o) =>
               o.id === event.payload.orderId
-                ? { ...o, status: "Rejected" as OrderStatus, rejectedReason: event.payload.reason, updatedAt: Date.now() }
+                ? {
+                    ...o,
+                    status: "Rejected" as OrderStatus,
+                    rejectedReason: event.payload.reason,
+                    updatedAt: Date.now(),
+                  }
                 : o
             )
           );
@@ -341,7 +399,6 @@ export default function Home() {
               lastActivityAt: Date.now(),
             },
           }));
-          // Archive orders for cleared table
           setOrders((prev) =>
             prev.map((o) =>
               o.table === event.payload.tableNumber && o.status !== "Archived"
@@ -355,6 +412,16 @@ export default function Home() {
           setGeoConfig(event.payload);
           break;
         }
+        case "TABLE_TOKEN_ROTATED": {
+          const current = getStoredTables();
+          const updated = current.map((t) =>
+            t.tableNumber === event.payload.tableNumber
+              ? { ...t, token: event.payload.token }
+              : t
+          );
+          saveStoredTables(updated);
+          break;
+        }
       }
     });
 
@@ -362,17 +429,38 @@ export default function Home() {
     const unsubscribeSupabase = subscribeToSupabaseRealtime((event) => {
       switch (event.type) {
         case "NEW_ORDER":
-          setOrders((prev) => (prev.some((o) => o.id === event.payload.id) ? prev : [event.payload, ...prev]));
+          setOrders((prev) =>
+            prev.some((o) => o.id === event.payload.id) ? prev : [event.payload, ...prev]
+          );
           playOrderChime();
           break;
         case "ORDER_STATUS_CHANGED":
           setOrders((prev) =>
-            prev.map((o) => (o.id === event.payload.orderId ? { ...o, status: event.payload.status, updatedAt: event.payload.updatedAt } : o))
+            prev.map((o) =>
+              o.id === event.payload.orderId
+                ? { ...o, status: event.payload.status, updatedAt: event.payload.updatedAt }
+                : o
+            )
           );
           break;
         case "NEW_SERVICE_REQUEST":
-          setServiceRequests((prev) => (prev.some((s) => s.id === event.payload.id) ? prev : [event.payload, ...prev]));
+          setServiceRequests((prev) =>
+            prev.some((s) => s.id === event.payload.id) ? prev : [event.payload, ...prev]
+          );
           playAlertChime();
+          break;
+        case "SERVICE_RESOLVED":
+          setServiceRequests((prev) =>
+            prev.map((s) =>
+              s.id === event.payload.requestId
+                ? { ...s, status: "Resolved", resolvedAt: event.payload.resolvedAt }
+                : s
+            )
+          );
+          break;
+        case "MENU_UPDATED":
+          setMenu(event.payload);
+          saveStoredMenu(event.payload);
           break;
       }
     });
@@ -384,16 +472,39 @@ export default function Home() {
     };
   }, []);
 
-  // Sync state changes to storage whenever they change locally
+  // Diff-aware Menu Update (handles Add, Edit/Toggle, and Delete with Supabase Cloud)
   const handleUpdateMenu = (newMenu: MenuItem[]) => {
+    const prevMap = new Map(menu.map((m) => [m.id, m]));
+    const nextMap = new Map(newMenu.map((m) => [m.id, m]));
+
+    // 1. Sync newly added items (POST)
+    for (const item of newMenu) {
+      const prev = prevMap.get(item.id);
+      if (!prev) {
+        syncNewMenuItemToSupabase(item);
+      } else if (
+        prev.name !== item.name ||
+        prev.price !== item.price ||
+        prev.available !== item.available ||
+        prev.description !== item.description ||
+        prev.tag !== item.tag ||
+        prev.prepTimeMinutes !== item.prepTimeMinutes
+      ) {
+        // 2. Sync only modified items (PATCH)
+        syncMenuItemUpdateToSupabase(item);
+      }
+    }
+
+    // 3. Sync deleted items (DELETE)
+    for (const oldItem of menu) {
+      if (!nextMap.has(oldItem.id)) {
+        syncDeleteMenuItemFromSupabase(oldItem.id);
+      }
+    }
+
     setMenu(newMenu);
     saveStoredMenu(newMenu);
     broadcastSyncEvent({ type: "MENU_UPDATED", payload: newMenu });
-
-    // Sync menu items to Supabase Cloud
-    for (const item of newMenu) {
-      syncMenuItemUpdateToSupabase(item);
-    }
   };
 
   const handleUpdateGeoConfig = (newConfig: GeoFenceConfig) => {
@@ -415,21 +526,25 @@ export default function Home() {
     const cleared = clearTableFloorSession(table);
     setTableSessions((prev) => ({ ...prev, [table]: cleared }));
 
-    // Archive all active orders for this table
-    const updatedOrders = orders.map((o) =>
-      o.table === table && o.status !== "Archived"
-        ? { ...o, status: "Archived" as OrderStatus, updatedAt: Date.now() }
-        : o
-    );
+    // Archive all active orders for this table & sync to Supabase
+    const updatedOrders = orders.map((o) => {
+      if (o.table === table && o.status !== "Archived") {
+        syncOrderStatusToSupabase(o.id, "Archived");
+        return { ...o, status: "Archived" as OrderStatus, updatedAt: Date.now() };
+      }
+      return o;
+    });
     setOrders(updatedOrders);
     saveStoredOrders(updatedOrders);
 
-    // Resolve any pending service requests for this table
-    const updatedServices = serviceRequests.map((s) =>
-      s.table === table && s.status === "Pending"
-        ? { ...s, status: "Resolved" as const, resolvedAt: Date.now() }
-        : s
-    );
+    // Resolve any pending service requests for this table & sync to Supabase
+    const updatedServices = serviceRequests.map((s) => {
+      if (s.table === table && s.status === "Pending") {
+        syncServiceResolveToSupabase(s.id);
+        return { ...s, status: "Resolved" as const, resolvedAt: Date.now() };
+      }
+      return s;
+    });
     setServiceRequests(updatedServices);
     saveStoredServices(updatedServices);
 
@@ -444,7 +559,6 @@ export default function Home() {
     const serviceFee = subtotal > 0 ? 1.5 : 0;
     const total = subtotal + serviceFee;
 
-    // Check if table was marked VACANT before this order arrived
     const currentTableSession = tableSessions[tableNumber];
     const tableWasVacant = !currentTableSession || currentTableSession.status === "VACANT";
 
@@ -470,7 +584,6 @@ export default function Home() {
     broadcastSyncEvent({ type: "NEW_ORDER", payload: newOrder });
     syncOrderToSupabase(newOrder);
 
-    // Auto-advance table floor status to ACTIVE_ORDER
     handleUpdateTableStatus(tableNumber, "ACTIVE_ORDER");
   };
 
@@ -519,7 +632,7 @@ export default function Home() {
         token: getTokenForTable(newTable),
         activatedAt: Date.now(),
       });
-      setTransferNotice(`🔔 Order transferred: You are now at Table ${newTable}.`);
+      setTransferNotice(`Order transferred: You are now at Table ${newTable}.`);
     }
 
     broadcastSyncEvent({
@@ -603,10 +716,10 @@ export default function Home() {
 
   if (!isClientLoaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#fffaf1] text-slate-800">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--color-background)] text-slate-800">
         <div className="text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
-          <p className="mt-4 text-xs font-bold uppercase tracking-widest text-slate-500">
+          <p className="mt-4 text-xs font-bold uppercase tracking-widest text-slate-600">
             Initializing TableTapp...
           </p>
         </div>
@@ -615,78 +728,84 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fffbf3,_#f7f2ea_35%,_#efe7dd_100%)] px-4 py-6 text-slate-900 sm:px-6 lg:px-10">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fffcf7,_#f8f3eb_40%,_#efe7dc_100%)] px-4 py-5 pb-28 text-slate-900 sm:px-6 sm:py-6 lg:px-10 lg:pb-10">
       <div className="mx-auto max-w-7xl">
         <OfflineBanner />
 
         {/* Global Navigation Header */}
-        <header className="mb-6 flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500 text-2xl font-black text-slate-950 shadow-md">
-              ⚡
+        <header className="mb-6 flex flex-col gap-4 rounded-[28px] border border-slate-200/90 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-center gap-3.5">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-amber-400 shadow-md">
+              <UtensilsIcon size={22} />
             </span>
             <div>
-              <h1 className="text-lg font-black tracking-tight text-slate-900 sm:text-xl">
+              <h1 className="font-display text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
                 TableTapp
               </h1>
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span>Sunshine Bistro</span>
-                <span>•</span>
-                <span className="font-semibold text-emerald-600 flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span className="font-semibold text-slate-800">Sunshine Bistro</span>
+                <span aria-hidden="true">•</span>
+                <span className="font-semibold text-emerald-700 flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                   {isSupabaseConfigured() ? "Supabase Cloud Live" : "Local Sync Active"}
                 </span>
                 {geoConfig.enabled && (
                   <>
-                    <span>•</span>
-                    <span className="font-semibold text-amber-700">📍 GPS Geofence Active</span>
+                    <span aria-hidden="true">•</span>
+                    <span className="inline-flex items-center gap-1 font-semibold text-amber-800">
+                      <MapPinIcon size={13} />
+                      <span>GPS Geofence Active</span>
+                    </span>
                   </>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Role Navigation / Gatekeeper Bar */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Role Navigation / Gatekeeper Bar (44px min touch targets) */}
+          <nav aria-label="Role Switcher" className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => handleSelectRole("guest")}
-              className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+              className={`inline-flex min-h-11 items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
                 activeRole === "guest"
                   ? "bg-slate-900 text-white shadow-md"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
-              🍽️ Guest View (Table {tableNumber})
+              <UtensilsIcon size={15} />
+              <span>Guest View (Table {tableNumber})</span>
             </button>
 
             <button
               type="button"
               onClick={() => handleSelectRole("kitchen")}
-              className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition ${
+              className={`inline-flex min-h-11 items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
                 activeRole === "kitchen"
                   ? "bg-slate-900 text-white shadow-md"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
-              <span>🍳 Kitchen KDS</span>
+              <ChefHatIcon size={15} />
+              <span>Kitchen KDS</span>
               {authenticatedRole !== "kitchen" && authenticatedRole !== "owner" && (
-                <span className="text-[10px] opacity-75">🔒</span>
+                <LockIcon size={12} className="opacity-70" />
               )}
             </button>
 
             <button
               type="button"
               onClick={() => handleSelectRole("owner")}
-              className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition ${
+              className={`inline-flex min-h-11 items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
                 activeRole === "owner"
                   ? "bg-slate-900 text-white shadow-md"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
-              <span>📊 Owner Suite</span>
+              <ChartBarIcon size={15} />
+              <span>Owner Suite</span>
               {authenticatedRole !== "owner" && (
-                <span className="text-[10px] opacity-75">🔒</span>
+                <LockIcon size={12} className="opacity-70" />
               )}
             </button>
 
@@ -694,19 +813,21 @@ export default function Home() {
               <button
                 type="button"
                 onClick={handleLockSession}
-                className="ml-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 transition"
                 title="Lock staff session and return to guest mode"
               >
-                🔒 Lock
+                <LockIcon size={13} />
+                <span>Lock</span>
               </button>
             )}
-          </div>
+          </nav>
         </header>
 
         {/* View Rendering based on Active Role */}
-        <section className="mt-8">
+        <section className="mt-6">
           {activeRole === "guest" && (
             <GuestView
+              key={tableNumber}
               tableNumber={tableNumber}
               onTableChange={setTableNumber}
               isStaff={authenticatedRole !== "none"}

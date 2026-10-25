@@ -105,4 +105,5 @@ export type SyncEvent =
   | { type: "MENU_UPDATED"; payload: MenuItem[] }
   | { type: "TABLE_STATUS_CHANGED"; payload: { tableNumber: number; status: TableOccupancyStatus; seatedAt?: number } }
   | { type: "TABLE_CLEARED"; payload: { tableNumber: number } }
-  | { type: "GEO_CONFIG_UPDATED"; payload: GeoFenceConfig };
+  | { type: "GEO_CONFIG_UPDATED"; payload: GeoFenceConfig }
+  | { type: "TABLE_TOKEN_ROTATED"; payload: { tableNumber: number; token: string } };

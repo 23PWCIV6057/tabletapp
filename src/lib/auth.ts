@@ -1,12 +1,11 @@
 import { UserRole } from "@/types";
 
-const STAFF_PIN = "1234";
-const OWNER_PIN = "8888";
 const AUTH_STORAGE_KEY = "tabletapp_auth_session";
 
 export type AuthState = {
   authenticatedRole: "none" | "kitchen" | "owner";
   unlockedAt: number | null;
+  sessionToken?: string;
 };
 
 export function getAuthState(): AuthState {
@@ -14,7 +13,8 @@ export function getAuthState(): AuthState {
     return { authenticatedRole: "none", unlockedAt: null };
   }
   try {
-    const raw = sessionStorage.getItem(AUTH_STORAGE_KEY) || localStorage.getItem(AUTH_STORAGE_KEY);
+    const raw =
+      sessionStorage.getItem(AUTH_STORAGE_KEY) || localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return { authenticatedRole: "none", unlockedAt: null };
     const parsed = JSON.parse(raw);
     // Auto-expire after 8 hours of inactivity
@@ -28,34 +28,30 @@ export function getAuthState(): AuthState {
   }
 }
 
-export function verifyPin(pin: string, requestedRole: "kitchen" | "owner"): { success: boolean; error?: string } {
-  const cleanPin = pin.trim();
-  if (requestedRole === "kitchen") {
-    // Owner PIN also unlocks kitchen
-    if (cleanPin === STAFF_PIN || cleanPin === OWNER_PIN) {
+export async function verifyPinServer(
+  pin: string,
+  requestedRole: "kitchen" | "owner"
+): Promise<{ success: boolean; role?: "kitchen" | "owner"; error?: string }> {
+  try {
+    const res = await fetch("/api/auth/verify-pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: pin.trim(), requestedRole }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
       const state: AuthState = {
-        authenticatedRole: "kitchen",
-        unlockedAt: Date.now(),
+        authenticatedRole: data.role || requestedRole,
+        unlockedAt: data.unlockedAt || Date.now(),
+        sessionToken: data.sessionToken,
       };
       saveAuthSession(state);
-      return { success: true };
+      return { success: true, role: state.authenticatedRole as "kitchen" | "owner" };
     }
-    return { success: false, error: "Invalid Staff PIN. (Default: 1234)" };
+    return { success: false, error: data.error || "Incorrect PIN" };
+  } catch {
+    return { success: false, error: "Network error verifying PIN." };
   }
-
-  if (requestedRole === "owner") {
-    if (cleanPin === OWNER_PIN) {
-      const state: AuthState = {
-        authenticatedRole: "owner",
-        unlockedAt: Date.now(),
-      };
-      saveAuthSession(state);
-      return { success: true };
-    }
-    return { success: false, error: "Invalid Manager PIN. (Default: 8888)" };
-  }
-
-  return { success: false, error: "Access Denied" };
 }
 
 export function saveAuthSession(state: AuthState) {
@@ -80,7 +76,10 @@ export function clearAuthSession() {
 export function canAccessRole(role: UserRole, currentAuth: AuthState): boolean {
   if (role === "guest") return true;
   if (role === "kitchen") {
-    return currentAuth.authenticatedRole === "kitchen" || currentAuth.authenticatedRole === "owner";
+    return (
+      currentAuth.authenticatedRole === "kitchen" ||
+      currentAuth.authenticatedRole === "owner"
+    );
   }
   if (role === "owner") {
     return currentAuth.authenticatedRole === "owner";

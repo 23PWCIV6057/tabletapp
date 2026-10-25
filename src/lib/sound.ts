@@ -1,11 +1,32 @@
 // Web Audio API Synthesized Chimes (Zero external audio files needed)
 
 let audioCtx: AudioContext | null = null;
+const AUDIO_MUTE_KEY = "tabletapp_audio_muted";
+
+export function isAudioMuted(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return sessionStorage.getItem(AUDIO_MUTE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setAudioMuted(muted: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(AUDIO_MUTE_KEY, muted ? "true" : "false");
+  } catch {
+    // Ignore
+  }
+}
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (!audioCtx) {
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (AudioContextClass) {
       audioCtx = new AudioContextClass();
     }
@@ -16,7 +37,8 @@ function getAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
-export function playOrderChime() {
+export function playOrderChime(force = false) {
+  if (!force && isAudioMuted()) return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -51,7 +73,8 @@ export function playOrderChime() {
   }
 }
 
-export function playAlertChime() {
+export function playAlertChime(force = false) {
+  if (!force && isAudioMuted()) return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;

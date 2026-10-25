@@ -1,15 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f4efe9;
-  --foreground: #0f172a;
+  --background: #faf6f0;
+  --foreground: #141210;
+  --surface: #ffffff;
+  --surface-muted: #f3ede3;
+  --primary: #b91c1c;
+  --primary-foreground: #ffffff;
+  --accent: #d97706;
+  --accent-foreground: #141210;
+  --border-subtle: #e7dfd3;
+  --ring-focus: #d97706;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --font-display: var(--font-display), Georgia, serif;
+  --font-sans: var(--font-sans), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
 }
 
 * {
@@ -25,9 +38,68 @@ body {
   min-height: 100vh;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-button {
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+button,
+[role="button"],
+select,
+a {
   cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* Accessible visible keyboard focus ring across all interactive elements */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--ring-focus);
+  outline-offset: 2px;
+}
+
+/* Respect user reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Print stylesheet: isolate physical QR Table Stand card when printing */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-qr-stand,
+  #printable-qr-stand * {
+    visibility: visible;
+  }
+  #printable-qr-stand {
+    position: fixed;
+    inset: 0;
+    margin: auto;
+    width: 100%;
+    max-width: 420px;
+    height: fit-content;
+    box-shadow: none !important;
+    border: 2px solid #0f172a !important;
+  }
 }

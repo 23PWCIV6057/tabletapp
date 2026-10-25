@@ -1,17 +1,30 @@
 "use client";
 
+import React from "react";
 import { OrderCard, OrderStatus } from "@/types";
+import {
+  BellIcon,
+  CheckCircleIcon,
+  ChefHatIcon,
+  InboxIcon,
+  UtensilsIcon,
+} from "./Icons";
 
 interface LiveOrderTrackerProps {
   orders: OrderCard[];
   onDismissOrder?: (orderId: string) => void;
 }
 
-const STEPS: { status: OrderStatus; label: string; icon: string; desc: string }[] = [
-  { status: "New", label: "Received", icon: "📥", desc: "Sent to kitchen" },
-  { status: "Preparing", label: "In Kitchen", icon: "👨‍🍳", desc: "Chef is cooking" },
-  { status: "Ready", label: "Ready", icon: "🛎️", desc: "Plated & ready" },
-  { status: "Served", label: "Served", icon: "✅", desc: "At your table" },
+const STEPS: {
+  status: OrderStatus;
+  label: string;
+  renderIcon: () => React.ReactNode;
+  desc: string;
+}[] = [
+  { status: "New", label: "Received", renderIcon: () => <InboxIcon size={15} />, desc: "Sent to kitchen" },
+  { status: "Preparing", label: "In Kitchen", renderIcon: () => <ChefHatIcon size={15} />, desc: "Chef is cooking" },
+  { status: "Ready", label: "Ready", renderIcon: () => <BellIcon size={15} />, desc: "Plated & ready" },
+  { status: "Served", label: "Served", renderIcon: () => <CheckCircleIcon size={15} />, desc: "At your table" },
 ];
 
 function getStepIndex(status: OrderStatus): number {
@@ -55,15 +68,19 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
               }`}
             >
               <div className="flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-xs font-black text-white">
+                <span className="tabular-nums flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-xs font-black text-white">
                   #{order.orderNumber}
                 </span>
                 <div>
                   <h4 className="text-sm font-black text-slate-900">
                     Table {order.table} {isDone ? "Completed Order" : "Active Order"}
                   </h4>
-                  <p className="text-[11px] text-slate-500">
-                    Placed {new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  <p className="text-xs text-slate-500">
+                    Placed{" "}
+                    {new Date(order.createdAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </p>
                 </div>
               </div>
@@ -71,12 +88,12 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
                     order.status === "New"
-                      ? "bg-rose-100 text-rose-700 animate-pulse"
+                      ? "bg-rose-100 text-rose-800 animate-pulse"
                       : order.status === "Preparing"
-                        ? "bg-amber-100 text-amber-700"
+                        ? "bg-amber-100 text-amber-800"
                         : order.status === "Ready"
-                          ? "bg-blue-100 text-blue-700 ring-2 ring-blue-500/30"
-                          : "bg-emerald-100 text-emerald-700"
+                          ? "bg-blue-100 text-blue-800 ring-2 ring-blue-500/30"
+                          : "bg-emerald-100 text-emerald-800"
                   }`}
                 >
                   {order.status === "New" ? "Kitchen Queued" : order.status}
@@ -86,10 +103,10 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
                   <button
                     type="button"
                     onClick={() => onDismissOrder(order.id)}
-                    className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white hover:bg-emerald-500 shadow-sm transition"
+                    className="min-h-10 rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-black text-white hover:bg-emerald-500 shadow-sm transition"
                     title="Dismiss served order"
                   >
-                    Clear ✓
+                    Clear
                   </button>
                 )}
               </div>
@@ -114,7 +131,7 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
                     return (
                       <div key={step.status} className="flex flex-col items-center">
                         <div
-                          className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all duration-300 ${
+                          className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold transition-all duration-300 ${
                             isPassed
                               ? isDone
                                 ? "bg-emerald-500 text-white ring-4 ring-emerald-500/20 shadow"
@@ -122,10 +139,10 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
                               : "border-2 border-slate-200 bg-white text-slate-400"
                           } ${isCurrent && !isDone ? "scale-110" : ""}`}
                         >
-                          {step.icon}
+                          {step.renderIcon()}
                         </div>
                         <span
-                          className={`mt-2 text-[11px] font-bold tracking-tight ${
+                          className={`mt-2 text-xs font-bold tracking-tight ${
                             isCurrent
                               ? "text-slate-900"
                               : isPassed
@@ -135,7 +152,7 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
                         >
                           {step.label}
                         </span>
-                        <span className="hidden text-[10px] text-slate-400 sm:inline">
+                        <span className="hidden text-xs text-slate-500 sm:inline">
                           {step.desc}
                         </span>
                       </div>
@@ -146,7 +163,7 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
 
               {/* Items summary */}
               <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3.5">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Order Breakdown
                 </p>
                 <div className="space-y-1.5">
@@ -156,23 +173,23 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
                         <span className="font-bold text-slate-900">{item.quantity}×</span>{" "}
                         {item.name}
                         {item.selectedModifiers.length > 0 && (
-                          <span className="text-[11px] text-slate-500 ml-1.5">
+                          <span className="text-xs text-slate-500 ml-1.5">
                             ({item.selectedModifiers.map((m) => m.optionName).join(", ")})
                           </span>
                         )}
                         {item.specialInstructions && (
-                          <p className="text-[10px] italic text-amber-700 ml-4">
+                          <p className="text-xs italic text-amber-800 ml-4">
                             Note: &quot;{item.specialInstructions}&quot;
                           </p>
                         )}
                       </div>
-                      <span className="font-semibold text-slate-800">
+                      <span className="tabular-nums font-semibold text-slate-800">
                         ${item.totalPrice.toFixed(2)}
                       </span>
                     </div>
                   ))}
                 </div>
-                <div className="mt-2.5 flex items-center justify-between border-t border-slate-200/60 pt-2 text-xs font-bold text-slate-900">
+                <div className="tabular-nums mt-2.5 flex items-center justify-between border-t border-slate-200/60 pt-2 text-xs font-bold text-slate-900">
                   <span>Total (incl. service)</span>
                   <span>${order.total.toFixed(2)}</span>
                 </div>
@@ -181,17 +198,19 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
               {/* Dismiss Banner when Served */}
               {isDone && (
                 <div className="mt-4 flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-emerald-900">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🍽️</span>
-                    <p className="text-xs font-bold">Your food has been served to Table {order.table}! Enjoy!</p>
+                  <div className="flex items-center gap-2.5">
+                    <UtensilsIcon size={18} className="text-emerald-700" />
+                    <p className="text-xs font-bold">
+                      Your food has been served to Table {order.table}! Enjoy!
+                    </p>
                   </div>
                   {onDismissOrder && (
                     <button
                       type="button"
                       onClick={() => onDismissOrder(order.id)}
-                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition"
+                      className="min-h-10 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition"
                     >
-                      Dismiss Tracker ✕
+                      Dismiss Tracker
                     </button>
                   )}
                 </div>
