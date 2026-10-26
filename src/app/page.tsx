@@ -33,8 +33,9 @@ import {
   setActiveGuestSession,
   updateTableStatus,
 } from "@/lib/tables";
-import { getStoredGeoConfig } from "@/lib/geo";
+import { getServiceFee, getStoredGeoConfig, saveStoredGeoConfig } from "@/lib/geo";
 import {
+  fetchGeoConfigFromSupabase,
   fetchMenuFromSupabase,
   fetchOrdersFromSupabase,
   fetchTableTokensFromSupabase,
@@ -152,6 +153,12 @@ export default function Home() {
           saveStoredTables(updated);
         }
       });
+      fetchGeoConfigFromSupabase().then((cloudGeo) => {
+        if (cloudGeo) {
+          setGeoConfig(cloudGeo);
+          saveStoredGeoConfig(cloudGeo);
+        }
+      });
 
       // 5s background sync for guest order tracker & live menu updates
       pollingTimer = setInterval(async () => {
@@ -199,6 +206,17 @@ export default function Home() {
               if (isDiff) {
                 saveStoredMenu(cloudMenu);
                 return cloudMenu;
+              }
+              return prev;
+            });
+          }
+
+          const cloudGeo = await fetchGeoConfigFromSupabase();
+          if (cloudGeo) {
+            setGeoConfig((prev) => {
+              if (JSON.stringify(prev) !== JSON.stringify(cloudGeo)) {
+                saveStoredGeoConfig(cloudGeo);
+                return cloudGeo;
               }
               return prev;
             });
@@ -333,7 +351,7 @@ export default function Home() {
     meta?: { geoVerified?: boolean; distanceMeters?: number }
   ) => {
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
-    const serviceFee = subtotal > 0 ? 1.5 : 0;
+    const serviceFee = getServiceFee(subtotal, geoConfig);
     const total = subtotal + serviceFee;
 
     const currentTableSession = tableSessions[tableNumber];
@@ -410,12 +428,12 @@ export default function Home() {
             </span>
             <div>
               <h1 className="font-display text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
-                Sunshine Bistro
+                {geoConfig.restaurantName || "Sunshine Bistro"}
               </h1>
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <span className="font-semibold text-emerald-700 flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Direct Kitchen Ordering</span>
+                  <span>{geoConfig.tagline || "Direct Kitchen Ordering"}</span>
                 </span>
                 {geoConfig.enabled && (
                   <>

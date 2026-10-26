@@ -1,4 +1,5 @@
-import { MenuCategory, MenuItem, ModifierGroup, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
+import { GeoFenceConfig, MenuCategory, MenuItem, ModifierGroup, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
+import { DEFAULT_GEO_CONFIG } from "./geo";
 import { initialMenuData } from "./sync";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -165,6 +166,41 @@ export async function fetchTableTokensFromSupabase(): Promise<{ tableNumber: num
       tableNumber: Number(r.table_number),
       token: String(r.qr_code_token),
     }));
+  } catch {
+    return null;
+  }
+}
+
+// shortcut: stores restaurant branding/currency/security JSON in dining_tables(table_number=1).name so zero SQL migration is needed
+export async function syncGeoConfigToSupabase(config: GeoFenceConfig): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.1`, {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify({ name: JSON.stringify(config) }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchGeoConfigFromSupabase(): Promise<GeoFenceConfig | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.1&select=name`, {
+      headers: getHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rawName = data?.[0]?.name;
+    if (typeof rawName === "string" && rawName.trim().startsWith("{")) {
+      const parsed = JSON.parse(rawName);
+      return { ...DEFAULT_GEO_CONFIG, ...parsed };
+    }
+    return null;
   } catch {
     return null;
   }

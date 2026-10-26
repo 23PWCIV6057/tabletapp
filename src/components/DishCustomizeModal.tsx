@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MenuItem, OrderItem } from "@/types";
+import { CurrencyCode, MenuItem, OrderItem } from "@/types";
+import { formatPrice } from "@/lib/geo";
 import { ClockIcon, XIcon } from "./Icons";
 
 interface DishCustomizeModalProps {
   item: MenuItem | null;
   isOpen: boolean;
+  currency?: CurrencyCode;
   onClose: () => void;
   onAddToCart: (orderItem: OrderItem) => void;
 }
@@ -14,6 +16,7 @@ interface DishCustomizeModalProps {
 export default function DishCustomizeModal({
   item,
   isOpen,
+  currency = "PKR",
   onClose,
   onAddToCart,
 }: DishCustomizeModalProps) {
@@ -166,7 +169,7 @@ export default function DishCustomizeModal({
                           </div>
                           {opt.priceDelta > 0 && (
                             <span className="tabular-nums text-xs font-bold text-slate-700">
-                              +${opt.priceDelta.toFixed(2)}
+                              +{formatPrice(opt.priceDelta, currency)}
                             </span>
                           )}
                         </button>
@@ -226,7 +229,7 @@ export default function DishCustomizeModal({
             onClick={handleAdd}
             className="tabular-nums min-h-12 flex-1 rounded-full bg-amber-500 px-6 py-3.5 text-center text-sm font-black text-slate-950 shadow-lg shadow-amber-500/25 transition hover:bg-amber-400 active:scale-[0.99]"
           >
-            Add to Order • ${totalPrice.toFixed(2)}
+            Add to Order • {formatPrice(totalPrice, currency)}
           </button>
         </div>
       </div>

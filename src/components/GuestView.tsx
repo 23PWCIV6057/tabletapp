@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { GeoFenceConfig, MenuItem, OrderCard, OrderItem, ServiceType } from "@/types";
-import { verifyUserWithinRestaurant } from "@/lib/geo";
+import { formatPrice, getServiceFee, verifyUserWithinRestaurant } from "@/lib/geo";
 import { verifyPinServer } from "@/lib/auth";
 import {
   AlertTriangleIcon,
@@ -179,75 +179,106 @@ export default function GuestView({
     });
   };
 
+  const currency = geoConfig?.currency || "PKR";
+  const restaurantName = geoConfig?.restaurantName || "Sunshine Bistro";
+  const securityMode = geoConfig?.securityMode || "hybrid_gps";
+  const dailyCode = (geoConfig?.dailyDineInCode || "42").trim();
+
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
-  const serviceFee = cartSubtotal > 0 ? 1.5 : 0;
+  const serviceFee = getServiceFee(cartSubtotal, geoConfig);
   const cartTotal = cartSubtotal + serviceFee;
 
-  // Checkout with GPS Location Guard
+  // Checkout with 3-Mode Anti-Prank Guard (Dine-In Code | Smart GPS + Fallback | KDS Only)
   const handleCheckout = async () => {
     if (cart.length === 0) return;
 
-    if (geoConfig && geoConfig.enabled) {
-      setIsVerifyingLocation(true);
-      try {
-        const check = await verifyUserWithinRestaurant(geoConfig);
-        setIsVerifyingLocation(false);
+    const alreadyVerifiedCode =
+      typeof window !== "undefined" &&
+      sessionStorage.getItem("tabletapp_dinein_verified") === dailyCode;
 
-        if (!check.success) {
-          if (check.reason === "OUTSIDE_RADIUS") {
-            setGeoBlockedModal({
-              distanceMeters: check.distanceMeters,
-              message: check.message,
-            });
-            return;
-          } else if (
-            check.reason === "PERMISSION_DENIED" ||
-            check.reason === "UNAVAILABLE" ||
-            check.reason === "TIMEOUT"
-          ) {
-            if (geoConfig.strictMode) {
-              setGeoBlockedModal({
-                message: check.message,
-                isPermissionError: true,
-              });
-              return;
-            } else {
-              onPlaceOrder(cart, { geoVerified: false });
-              setCart([]);
-              setIsMobileCartOpen(false);
-              return;
-            }
-          }
-        } else {
-          onPlaceOrder(cart, { geoVerified: true, distanceMeters: check.distanceMeters });
+    if (!geoConfig || !geoConfig.enabled || securityMode === "kds_only" || alreadyVerifiedCode) {
+      onPlaceOrder(cart, { geoVerified: true });
+      setCart([]);
+      setIsMobileCartOpen(false);
+      return;
+    }
+
+    // Mode 1: Daily Dine-In Code (Zero GPS popup, zero indoor GPS drift)
+    if (securityMode === "dine_in_code") {
+      setShowBypassInput(true);
+      setGeoBlockedModal({
+        message: `Enter Today's Dine-In Code displayed on the ${restaurantName} Wi-Fi sign / counter board (or ask your server) to send your order to the kitchen.`,
+      });
+      return;
+    }
+
+    // Mode 2: Smart Hybrid (GPS + Automatic Dine-In Code Fallback if GPS drifts indoors)
+    setIsVerifyingLocation(true);
+    try {
+      const check = await verifyUserWithinRestaurant(geoConfig);
+      setIsVerifyingLocation(false);
+
+      if (!check.success) {
+        if (!geoConfig.strictMode && check.reason !== "OUTSIDE_RADIUS") {
+          onPlaceOrder(cart, { geoVerified: false });
           setCart([]);
           setIsMobileCartOpen(false);
           return;
         }
-      } catch {
-        setIsVerifyingLocation(false);
-        if (geoConfig.strictMode) {
-          setGeoBlockedModal({
-            message:
-              "Unable to verify physical restaurant location. Please enable GPS permissions.",
-            isPermissionError: true,
-          });
-          return;
-        }
+        setShowBypassInput(true);
+        setGeoBlockedModal({
+          distanceMeters: check.distanceMeters,
+          message:
+            "Indoor GPS signal drifted or is unavailable. Enter Today's Dine-In Code (posted on the café Wi-Fi board or ask your waiter) to place your order immediately.",
+          isPermissionError: check.reason !== "OUTSIDE_RADIUS",
+        });
+        return;
       }
-    }
 
-    onPlaceOrder(cart, { geoVerified: true });
-    setCart([]);
-    setIsMobileCartOpen(false);
+      onPlaceOrder(cart, { geoVerified: true, distanceMeters: check.distanceMeters });
+      setCart([]);
+      setIsMobileCartOpen(false);
+    } catch {
+      setIsVerifyingLocation(false);
+      setShowBypassInput(true);
+      setGeoBlockedModal({
+        message:
+          "Indoor GPS signal unavailable. Enter Today's Dine-In Code (posted on the café Wi-Fi board or ask your waiter) to place your order.",
+        isPermissionError: true,
+      });
+    }
   };
 
-  // Staff bypass for guests with broken GPS (validated via server route)
+  // Dine-In Code OR Staff PIN verification
   const handleStaffBypassSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await verifyPinServer(staffBypassPin, "kitchen");
+    const entered = staffBypassPin.trim();
+    if (!entered) return;
+
+    if (entered.toLowerCase() === dailyCode.toLowerCase()) {
+      try {
+        sessionStorage.setItem("tabletapp_dinein_verified", dailyCode);
+      } catch {
+        // Ignore storage error
+      }
+      setGeoBlockedModal(null);
+      setShowBypassInput(false);
+      setStaffBypassPin("");
+      setBypassError(false);
+      onPlaceOrder(cart, { geoVerified: true, distanceMeters: 0 });
+      setCart([]);
+      setIsMobileCartOpen(false);
+      return;
+    }
+
+    const res = await verifyPinServer(entered, "kitchen");
     if (res.success) {
+      try {
+        sessionStorage.setItem("tabletapp_dinein_verified", dailyCode);
+      } catch {
+        // Ignore storage error
+      }
       setGeoBlockedModal(null);
       setShowBypassInput(false);
       setStaffBypassPin("");
@@ -337,7 +368,7 @@ export default function GuestView({
                   )}
                 </div>
                 <span className="tabular-nums text-xs font-black text-white">
-                  ${item.totalPrice.toFixed(2)}
+                  {formatPrice(item.totalPrice, currency)}
                 </span>
               </div>
 
@@ -382,15 +413,17 @@ export default function GuestView({
         <div className="mt-6 border-t border-slate-800 pt-4 space-y-2 text-xs">
           <div className="tabular-nums flex justify-between text-slate-300">
             <span>Subtotal</span>
-            <span>${cartSubtotal.toFixed(2)}</span>
+            <span>{formatPrice(cartSubtotal, currency)}</span>
           </div>
-          <div className="tabular-nums flex justify-between text-slate-300">
-            <span>Service Fee & Dine-in Support</span>
-            <span>${serviceFee.toFixed(2)}</span>
-          </div>
+          {serviceFee > 0 && (
+            <div className="tabular-nums flex justify-between text-slate-300">
+              <span>Service Fee & Dine-in Support</span>
+              <span>{formatPrice(serviceFee, currency)}</span>
+            </div>
+          )}
           <div className="tabular-nums flex justify-between text-base font-black text-white pt-2 border-t border-slate-800">
             <span>Total</span>
-            <span>${cartTotal.toFixed(2)}</span>
+            <span>{formatPrice(cartTotal, currency)}</span>
           </div>
 
           <button
@@ -402,10 +435,10 @@ export default function GuestView({
             {isVerifyingLocation ? (
               <>
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950 border-t-transparent" />
-                <span>Verifying On-Premises GPS...</span>
+                <span>Verifying Table Session...</span>
               </>
             ) : (
-              <span>Place Table Order • ${cartTotal.toFixed(2)}</span>
+              <span>Place Table Order • {formatPrice(cartTotal, currency)}</span>
             )}
           </button>
           <p className="flex items-center justify-center gap-1.5 text-center text-xs text-slate-400 pt-1">
@@ -455,7 +488,7 @@ export default function GuestView({
           <div className="flex items-center gap-2">
             <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
             <p className="text-xs font-bold uppercase tracking-widest text-amber-800">
-              Sunshine Bistro • Dine-in Experience
+              {restaurantName} • Dine-in Experience
             </p>
           </div>
           <h2 className="font-display mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">
@@ -598,6 +631,7 @@ export default function GuestView({
           </div>
           <LiveOrderTracker
             orders={inProgressOrders}
+            currency={currency}
             onDismissOrder={(id) => setDismissedOrderIds((prev) => [...prev, id])}
           />
         </section>
@@ -751,7 +785,7 @@ export default function GuestView({
                         {item.tag}
                       </span>
                       <span className="tabular-nums shrink-0 text-base font-black text-slate-900">
-                        ${item.price.toFixed(2)}
+                        {formatPrice(item.price, currency)}
                       </span>
                     </div>
 
@@ -809,7 +843,7 @@ export default function GuestView({
               <div>
                 <p className="text-xs font-bold text-slate-300">Table {tableNumber} Cart</p>
                 <p className="tabular-nums text-base font-black text-white">
-                  ${cartTotal.toFixed(2)}{" "}
+                  {formatPrice(cartTotal, currency)}{" "}
                   <span className="text-xs font-normal text-amber-400 underline">
                     Review items
                   </span>
@@ -861,11 +895,12 @@ export default function GuestView({
         key={customizingItem?.id ?? "closed"}
         item={customizingItem}
         isOpen={Boolean(customizingItem)}
+        currency={currency}
         onClose={() => setCustomizingItem(null)}
         onAddToCart={handleAddToCart}
       />
 
-      {/* GPS Remote Order Blocked Modal (Anti-Tamper Shield) */}
+      {/* Dine-In Verification / Indoor GPS Fallback Modal */}
       {geoBlockedModal && (
         <div
           role="dialog"
@@ -873,98 +908,78 @@ export default function GuestView({
           aria-labelledby="geo-blocked-title"
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
         >
-          <div className="w-full max-w-md rounded-[32px] border border-rose-200 bg-white p-6 shadow-2xl text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
-              <MapPinIcon size={30} />
+          <div className="w-full max-w-md rounded-[32px] border border-amber-200 bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+              <ShieldCheckIcon size={30} />
             </div>
 
             <h3 id="geo-blocked-title" className="font-display mt-4 text-xl font-bold text-slate-900">
-              {geoBlockedModal.isPermissionError
-                ? "Location Access Required"
-                : "Outside Restaurant Perimeter"}
+              {securityMode === "dine_in_code"
+                ? `Table ${tableNumber} Dine-In Verification`
+                : "Quick Table Verification"}
             </h3>
 
             <p className="mt-2 text-xs text-slate-600 leading-relaxed">
               {geoBlockedModal.message}
             </p>
 
-            <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50/70 p-3.5 text-left text-xs text-rose-950 space-y-1">
-              <p className="flex items-center gap-1.5 font-bold">
-                <ShieldCheckIcon size={15} className="text-rose-700" />
-                <span>Anti-Prank Security Active:</span>
-              </p>
-              <p className="text-xs text-rose-800 leading-relaxed">
-                To prevent remote prank orders from outside the building, TableTapp ensures
-                guests are physically seated inside Sunshine Bistro before sending tickets to
-                the chef.
-              </p>
-            </div>
-
-            {/* Staff Override PIN Form */}
-            {showBypassInput ? (
-              <form onSubmit={handleStaffBypassSubmit} className="mt-4 space-y-2.5">
-                <label htmlFor="staff-bypass-pin" className="block text-xs font-bold text-slate-700">
-                  Enter Staff Override PIN:
+            {/* Primary Dine-In Code / Staff Override Form */}
+            <form onSubmit={handleStaffBypassSubmit} className="mt-4 space-y-3">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-left">
+                <label
+                  htmlFor="staff-bypass-pin"
+                  className="block text-xs font-black uppercase tracking-wider text-amber-950"
+                >
+                  Enter Today&apos;s Dine-In Code (or Staff PIN):
                 </label>
+                <p className="mt-0.5 text-xs text-amber-900">
+                  Displayed on the {restaurantName} Wi-Fi sign / counter board, or ask your server.
+                </p>
                 <input
                   id="staff-bypass-pin"
-                  type="password"
-                  maxLength={4}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  autoFocus
                   value={staffBypassPin}
                   onChange={(e) => setStaffBypassPin(e.target.value)}
-                  placeholder="Staff PIN (1234)"
-                  className="min-h-11 w-full rounded-xl border border-slate-300 p-2.5 text-center text-sm font-bold tracking-widest text-slate-900 focus:border-amber-500"
+                  placeholder="Enter code (e.g. 42)"
+                  className="mt-2.5 min-h-12 w-full rounded-xl border border-amber-300 bg-white p-3 text-center text-base font-black tracking-widest text-slate-900 focus:border-amber-600"
                 />
                 {bypassError && (
-                  <p role="alert" className="text-xs font-bold text-rose-600">
-                    Invalid Staff PIN
+                  <p role="alert" className="mt-1.5 text-center text-xs font-bold text-rose-600">
+                    Incorrect Dine-In Code. Please check the café sign or ask your waiter.
                   </p>
                 )}
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="min-h-11 flex-1 rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800"
-                  >
-                    Authorize Order
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowBypassInput(false)}
-                    className="min-h-11 rounded-xl bg-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-300"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="mt-5 flex flex-col gap-2.5">
+              </div>
+
+              <button
+                type="submit"
+                className="min-h-12 w-full rounded-full bg-emerald-500 py-3 text-sm font-black text-slate-950 shadow-md hover:bg-emerald-400 transition"
+              >
+                Verify &amp; Place Order ({formatPrice(cartTotal, currency)})
+              </button>
+            </form>
+
+            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setGeoBlockedModal(null)}
+                className="min-h-10 px-2 text-slate-600 hover:text-slate-900 font-semibold"
+              >
+                ← Back to Cart
+              </button>
+              {securityMode === "hybrid_gps" && (
                 <button
                   type="button"
                   onClick={handleCheckout}
-                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-slate-900 py-3 text-xs font-black text-white hover:bg-slate-800 transition shadow-md"
+                  className="inline-flex min-h-10 items-center gap-1.5 px-2 text-amber-800 font-bold hover:underline"
                 >
-                  <RefreshCwIcon size={14} />
-                  <span>Retry GPS Verification</span>
+                  <RefreshCwIcon size={13} />
+                  <span>Retry GPS Check</span>
                 </button>
-
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setGeoBlockedModal(null)}
-                    className="min-h-10 px-2 text-slate-600 hover:text-slate-900 font-semibold"
-                  >
-                    Close & Edit Cart
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowBypassInput(true)}
-                    className="min-h-10 px-2 text-amber-800 font-bold hover:underline"
-                  >
-                    Ask Waiter / Staff Bypass
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -972,7 +987,7 @@ export default function GuestView({
       {/* Discrete Staff Portal Link in Footer */}
       <footer className="mt-16 border-t border-slate-200/80 pt-8 text-center">
         <p className="text-xs text-slate-500">
-          Sunshine Bistro • Powered by TableTapp Dining
+          {restaurantName} • Powered by TableTapp Dining
         </p>
         <div className="mt-2 flex items-center justify-center">
           <Link

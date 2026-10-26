@@ -1,16 +1,40 @@
-import { GeoFenceConfig } from "@/types";
+import { CurrencyCode, GeoFenceConfig } from "@/types";
 
 const STORAGE_GEO_KEY = "tabletapp_geo_config_v1";
 
-// Default coordinate placeholder (can be updated to exact coordinates by the restaurant owner in 1 tap)
+// Default configuration (can be customized live by the restaurant owner in Owner Suite)
 export const DEFAULT_GEO_CONFIG: GeoFenceConfig = {
   enabled: true,
   latitude: 34.0086,
   longitude: 71.5484,
   radiusMeters: 150, // 150m perimeter covers restaurant floor, patio, and parking
   restaurantName: "Sunshine Bistro",
+  tagline: "Direct Kitchen Ordering",
+  currency: "PKR",
+  serviceFeeEnabled: false,
+  serviceFeeAmount: 0,
+  securityMode: "hybrid_gps",
+  dailyDineInCode: "42",
   strictMode: true,
 };
+
+export function formatPrice(amount: number, currency: CurrencyCode = "PKR"): string {
+  const safe = Number(amount) || 0;
+  if (currency === "PKR") {
+    const formatted =
+      safe % 1 === 0
+        ? safe.toLocaleString("en-PK")
+        : safe.toLocaleString("en-PK", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    return `Rs. ${formatted}`;
+  }
+  return `$${safe.toFixed(2)}`;
+}
+
+export function getServiceFee(subtotal: number, config?: GeoFenceConfig): number {
+  if (subtotal <= 0) return 0;
+  if (!config || config.serviceFeeEnabled === false) return 0;
+  return Number(config.serviceFeeAmount) || 0;
+}
 
 export function getStoredGeoConfig(): GeoFenceConfig {
   if (typeof window === "undefined") return DEFAULT_GEO_CONFIG;
@@ -20,7 +44,11 @@ export function getStoredGeoConfig(): GeoFenceConfig {
       localStorage.setItem(STORAGE_GEO_KEY, JSON.stringify(DEFAULT_GEO_CONFIG));
       return DEFAULT_GEO_CONFIG;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_GEO_CONFIG,
+      ...parsed,
+    };
   } catch {
     return DEFAULT_GEO_CONFIG;
   }

@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { OrderCard, OrderStatus } from "@/types";
+import { CurrencyCode, OrderCard, OrderStatus } from "@/types";
+import { formatPrice } from "@/lib/geo";
 import {
   BellIcon,
   CheckCircleIcon,
@@ -12,6 +13,7 @@ import {
 
 interface LiveOrderTrackerProps {
   orders: OrderCard[];
+  currency?: CurrencyCode;
   onDismissOrder?: (orderId: string) => void;
 }
 
@@ -43,7 +45,11 @@ function getStepIndex(status: OrderStatus): number {
   }
 }
 
-export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTrackerProps) {
+export default function LiveOrderTracker({
+  orders,
+  currency = "PKR",
+  onDismissOrder,
+}: LiveOrderTrackerProps) {
   if (orders.length === 0) return null;
 
   return (
@@ -184,14 +190,14 @@ export default function LiveOrderTracker({ orders, onDismissOrder }: LiveOrderTr
                         )}
                       </div>
                       <span className="tabular-nums font-semibold text-slate-800">
-                        ${item.totalPrice.toFixed(2)}
+                        {formatPrice(item.totalPrice, currency)}
                       </span>
                     </div>
                   ))}
                 </div>
                 <div className="tabular-nums mt-2.5 flex items-center justify-between border-t border-slate-200/60 pt-2 text-xs font-bold text-slate-900">
-                  <span>Total (incl. service)</span>
-                  <span>${order.total.toFixed(2)}</span>
+                  <span>Total</span>
+                  <span>{formatPrice(order.total, currency)}</span>
                 </div>
               </div>
 

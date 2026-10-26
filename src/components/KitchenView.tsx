@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import {
+  GeoFenceConfig,
   OrderCard,
   OrderStatus,
   ServiceRequest,
   TableOccupancyStatus,
   TableSession,
 } from "@/types";
+import { formatPrice } from "@/lib/geo";
 import {
   isAudioMuted,
   playOrderChime,
@@ -33,6 +35,7 @@ interface KitchenViewProps {
   orders: OrderCard[];
   serviceRequests: ServiceRequest[];
   tableSessions?: Record<number, TableSession>;
+  geoConfig?: GeoFenceConfig;
   onUpdateOrderStatus: (orderId: string, nextStatus: OrderStatus) => void;
   onResolveService: (requestId: string) => void;
   onTransferOrder: (orderId: string, newTable: number) => void;
@@ -46,6 +49,7 @@ export default function KitchenView({
   orders,
   serviceRequests,
   tableSessions = {},
+  geoConfig,
   onUpdateOrderStatus,
   onResolveService,
   onTransferOrder,
@@ -54,6 +58,8 @@ export default function KitchenView({
   onRejectOrder,
   onLockSession,
 }: KitchenViewProps) {
+  const currency = geoConfig?.currency || "PKR";
+  const dailyCode = geoConfig?.dailyDineInCode || "42";
   const [filterTab, setFilterTab] = useState<"active" | "history">("active");
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [audioEnabled, setAudioEnabled] = useState(() => !isAudioMuted());
@@ -112,6 +118,12 @@ export default function KitchenView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Today's Dine-In Code Badge for Staff Reference */}
+          <span className="tabular-nums inline-flex min-h-11 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-3.5 py-2 text-xs font-black text-amber-300">
+            <span>Dine-In Code:</span>
+            <span className="rounded bg-amber-500 px-1.5 py-0.5 text-slate-950">{dailyCode}</span>
+          </span>
+
           {/* Audio Chime Controls */}
           <button
             type="button"
@@ -527,7 +539,7 @@ export default function KitchenView({
                               {item.name}
                             </div>
                             <span className="tabular-nums text-xs font-semibold text-slate-500">
-                              ${item.totalPrice.toFixed(2)}
+                              {formatPrice(item.totalPrice, currency)}
                             </span>
                           </div>
 

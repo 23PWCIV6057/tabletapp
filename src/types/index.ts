@@ -85,13 +85,23 @@ export type TableSession = {
   lastActivityAt?: number;
 };
 
-// GPS Geofence Anti-Tamper Configuration
+// Anti-Prank Security Modes & Currency
+export type AntiPrankMode = "dine_in_code" | "hybrid_gps" | "kds_only";
+export type CurrencyCode = "PKR" | "USD";
+
+// Restaurant Branding, Currency & Anti-Tamper Configuration
 export type GeoFenceConfig = {
   enabled: boolean;
   latitude: number;
   longitude: number;
-  radiusMeters: number; // e.g. 100
+  radiusMeters: number; // e.g. 150
   restaurantName: string;
+  tagline?: string;
+  currency?: CurrencyCode;
+  serviceFeeEnabled?: boolean;
+  serviceFeeAmount?: number;
+  securityMode?: AntiPrankMode;
+  dailyDineInCode?: string;
   strictMode: boolean; // if true, block order outside geofence; if false, warn
 };
 

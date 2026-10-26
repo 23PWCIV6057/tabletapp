@@ -31,6 +31,7 @@ import {
 } from "@/lib/tables";
 import { getStoredGeoConfig, saveStoredGeoConfig } from "@/lib/geo";
 import {
+  fetchGeoConfigFromSupabase,
   fetchMenuFromSupabase,
   fetchOrdersFromSupabase,
   fetchServicesFromSupabase,
@@ -38,6 +39,7 @@ import {
   isSupabaseConfigured,
   subscribeToSupabaseRealtime,
   syncDeleteMenuItemFromSupabase,
+  syncGeoConfigToSupabase,
   syncMenuItemUpdateToSupabase,
   syncNewMenuItemToSupabase,
   syncOrderStatusToSupabase,
@@ -136,6 +138,12 @@ export default function StaffHubPage() {
             return ct ? { ...t, token: ct.token } : t;
           });
           saveStoredTables(updated);
+        }
+      });
+      fetchGeoConfigFromSupabase().then((cloudGeo) => {
+        if (cloudGeo) {
+          setGeoConfig(cloudGeo);
+          saveStoredGeoConfig(cloudGeo);
         }
       });
 
@@ -422,6 +430,7 @@ export default function StaffHubPage() {
     setGeoConfig(newConfig);
     saveStoredGeoConfig(newConfig);
     broadcastSyncEvent({ type: "GEO_CONFIG_UPDATED", payload: newConfig });
+    syncGeoConfigToSupabase(newConfig);
   };
 
   const handleUpdateTableStatus = (table: number, status: TableOccupancyStatus) => {
@@ -674,7 +683,9 @@ export default function StaffHubPage() {
                 TableTapp Staff Hub
               </h1>
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                <span className="font-semibold text-slate-800">Sunshine Bistro</span>
+                <span className="font-semibold text-slate-800">
+                  {geoConfig.restaurantName || "Sunshine Bistro"}
+                </span>
                 <span aria-hidden="true">•</span>
                 <span className="font-semibold text-emerald-700 flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -737,6 +748,7 @@ export default function StaffHubPage() {
               orders={orders}
               serviceRequests={serviceRequests}
               tableSessions={tableSessions}
+              geoConfig={geoConfig}
               onUpdateOrderStatus={handleUpdateOrderStatus}
               onResolveService={handleResolveService}
               onTransferOrder={handleTransferOrder}

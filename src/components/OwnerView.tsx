@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GeoFenceConfig, MenuCategory, MenuItem, OrderCard, ServiceRequest } from "@/types";
+import { AntiPrankMode, CurrencyCode, GeoFenceConfig, MenuCategory, MenuItem, OrderCard, ServiceRequest } from "@/types";
 import { getTokenForTable, rotateTokenForTable } from "@/lib/tables";
-import { calculateDistanceMeters, DEFAULT_GEO_CONFIG } from "@/lib/geo";
+import { calculateDistanceMeters, DEFAULT_GEO_CONFIG, formatPrice } from "@/lib/geo";
 import {
   CheckCircleIcon,
   LockIcon,
@@ -57,6 +57,13 @@ export default function OwnerView({
     text: string;
   } | null>(null);
 
+  // Sync local form if parent geoConfig updates from cloud
+  useEffect(() => {
+    setGeoForm((prev) => ({ ...prev, ...geoConfig }));
+  }, [geoConfig]);
+
+  const currency: CurrencyCode = geoForm.currency || geoConfig.currency || "PKR";
+  const restaurantName = geoForm.restaurantName || geoConfig.restaurantName || "Sunshine Bistro";
   const currentToken = getTokenForTable(selectedTableForQr);
   const currentQrUrl = `${domainUrl.replace(/\/$/, "")}/t/${currentToken}`;
 
@@ -232,7 +239,7 @@ export default function OwnerView({
           <div className="flex items-center gap-2">
             <span className="flex h-2.5 w-2.5 rounded-full bg-amber-500" />
             <p className="text-xs font-bold uppercase tracking-widest text-amber-800">
-              Sunshine Bistro • Executive Management
+              {restaurantName} • Executive Management
             </p>
           </div>
           <h2 className="font-display mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">
@@ -277,8 +284,8 @@ export default function OwnerView({
                   : "text-slate-700 hover:text-slate-900"
               }`}
             >
-              <MapPinIcon size={13} />
-              <span>GPS & Anti-Tamper</span>
+              <ShieldCheckIcon size={13} />
+              <span>Branding, Currency &amp; Security</span>
             </button>
             <button
               type="button"
@@ -311,7 +318,7 @@ export default function OwnerView({
             Total Live Revenue
           </p>
           <p className="tabular-nums mt-2 text-3xl font-black text-slate-900">
-            ${totalSales.toFixed(2)}
+            {formatPrice(totalSales, currency)}
           </p>
           <span className="mt-1 inline-block text-xs font-semibold text-emerald-700">
             Active dining session
@@ -335,7 +342,7 @@ export default function OwnerView({
             Average Order Value (AOV)
           </p>
           <p className="tabular-nums mt-2 text-3xl font-black text-slate-900">
-            ${aov.toFixed(2)}
+            {formatPrice(aov, currency)}
           </p>
           <span className="mt-1 inline-block text-xs font-semibold text-slate-600">
             Per table order
@@ -402,7 +409,7 @@ export default function OwnerView({
 
                   <div className="flex flex-wrap items-center gap-2.5">
                     <span className="tabular-nums text-sm font-black text-slate-900 mr-1">
-                      ${dish.price.toFixed(2)}
+                      {formatPrice(dish.price, currency)}
                     </span>
 
                     <button
@@ -484,7 +491,7 @@ export default function OwnerView({
                     htmlFor="add-dish-price"
                     className="block text-xs font-bold text-slate-700"
                   >
-                    Price ($)
+                    Price ({currency === "PKR" ? "Rs." : "$"})
                   </label>
                   <input
                     id="add-dish-price"
@@ -635,7 +642,7 @@ export default function OwnerView({
               className="rounded-[28px] border-2 border-dashed border-amber-300 bg-gradient-to-b from-[#fffaf1] to-white p-8 text-center shadow-lg"
             >
               <div className="inline-block rounded-2xl bg-amber-500 px-4 py-1 text-xs font-black uppercase tracking-widest text-slate-950 mb-4">
-                Sunshine Bistro Table Stand
+                {restaurantName} Table Stand
               </div>
 
               <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900">
@@ -671,28 +678,26 @@ export default function OwnerView({
         </div>
       )}
 
-      {/* Subtab 3: GPS Geofence & Anti-Tamper Security */}
+      {/* Subtab 3: Branding, Currency & Anti-Prank Security */}
       {subTab === "security" && (
-        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 sm:p-6 shadow-sm space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div>
               <h3 className="font-display text-xl font-bold text-slate-900 flex items-center gap-2">
-                <MapPinIcon size={20} className="text-amber-700" />
-                <span>GPS Geofencing & Anti-Tamper Security</span>
+                <ShieldCheckIcon size={20} className="text-amber-700" />
+                <span>Restaurant Branding, Currency &amp; Anti-Prank Security</span>
               </h3>
               <p className="mt-0.5 text-xs text-slate-600">
-                Prevents remote prank orders from outside the restaurant by verifying the guest
-                is physically seated on-premises
+                Customize your café identity, PKR/USD pricing, and drift-free table verification
               </p>
             </div>
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-bold ${
-                geoForm.enabled
-                  ? "bg-emerald-100 text-emerald-900"
-                  : "bg-slate-100 text-slate-600"
-              }`}
-            >
-              {geoForm.enabled ? "Geofence ACTIVE" : "Geofence DISABLED"}
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">
+              Mode:{" "}
+              {(geoForm.securityMode || "hybrid_gps") === "dine_in_code"
+                ? "Daily Dine-In Code"
+                : (geoForm.securityMode || "hybrid_gps") === "kds_only"
+                  ? "KDS Floor Check Only"
+                  : "Smart GPS + Code Fallback"}
             </span>
           </div>
 
@@ -705,184 +710,322 @@ export default function OwnerView({
             </div>
           )}
 
-          <form onSubmit={handleSaveGeoSettings} className="space-y-6 max-w-2xl">
-            {/* Geofence Toggle */}
-            <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <form onSubmit={handleSaveGeoSettings} className="space-y-6 max-w-3xl">
+            {/* Section A: Restaurant Branding & Currency */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-4">
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                1. Restaurant Identity, Currency &amp; Service Fee
+              </h4>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="rest-name-input" className="block text-xs font-bold text-slate-700">
+                    Restaurant / Café Name
+                  </label>
+                  <input
+                    id="rest-name-input"
+                    type="text"
+                    required
+                    value={geoForm.restaurantName}
+                    onChange={(e) => setGeoForm({ ...geoForm, restaurantName: e.target.value })}
+                    placeholder="e.g. Khyber Roast & Bistro"
+                    className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-bold text-slate-900 focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="rest-tagline-input" className="block text-xs font-bold text-slate-700">
+                    Header Tagline
+                  </label>
+                  <input
+                    id="rest-tagline-input"
+                    type="text"
+                    value={geoForm.tagline ?? "Direct Kitchen Ordering"}
+                    onChange={(e) => setGeoForm({ ...geoForm, tagline: e.target.value })}
+                    placeholder="e.g. University Road • Dine-In Portal"
+                    className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-900 focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <span className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Display Currency
+                  </span>
+                  <div className="flex gap-2">
+                    {(["PKR", "USD"] as CurrencyCode[]).map((curr) => (
+                      <button
+                        key={curr}
+                        type="button"
+                        onClick={() => setGeoForm({ ...geoForm, currency: curr })}
+                        className={`min-h-11 flex-1 rounded-xl border px-3 py-2 text-xs font-black transition ${
+                          (geoForm.currency || "PKR") === curr
+                            ? "border-slate-900 bg-slate-900 text-white shadow"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {curr === "PKR" ? "PKR (Rs.) — Pakistan" : "USD ($) — International"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="service-fee-amount" className="block text-xs font-bold text-slate-700">
+                    Dine-In Service Fee ({(geoForm.currency || "PKR") === "PKR" ? "Rs." : "$"})
+                  </label>
+                  <div className="mt-1.5 flex items-center gap-2.5">
+                    <input
+                      id="service-fee-toggle"
+                      type="checkbox"
+                      checked={Boolean(geoForm.serviceFeeEnabled)}
+                      onChange={(e) =>
+                        setGeoForm({ ...geoForm, serviceFeeEnabled: e.target.checked })
+                      }
+                      className="h-5 w-5 rounded border-slate-300 text-amber-600 cursor-pointer"
+                    />
+                    <input
+                      id="service-fee-amount"
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      disabled={!geoForm.serviceFeeEnabled}
+                      value={geoForm.serviceFeeAmount ?? 0}
+                      onChange={(e) =>
+                        setGeoForm({ ...geoForm, serviceFeeAmount: Number(e.target.value) })
+                      }
+                      className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-bold text-slate-900 disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section B: 3-Mode Anti-Prank Security System */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-4">
               <div>
-                <label
-                  htmlFor="geo-enabled-toggle"
-                  className="text-sm font-black text-slate-900 cursor-pointer"
-                >
-                  Enable GPS Geofencing Guard
-                </label>
-                <p className="text-xs text-slate-600">
-                  When enabled, customers must be within the restaurant perimeter to place
-                  orders.
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  2. Anti-Prank Security Mode (Eliminates Indoor GPS Drift)
+                </h4>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  Choose how TableTapp verifies guests are seated inside {geoForm.restaurantName}
                 </p>
               </div>
-              <input
-                id="geo-enabled-toggle"
-                type="checkbox"
-                checked={geoForm.enabled}
-                onChange={(e) => setGeoForm({ ...geoForm, enabled: e.target.checked })}
-                className="h-6 w-6 rounded border-slate-300 text-amber-600 cursor-pointer"
-              />
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {[
+                  {
+                    mode: "dine_in_code" as AntiPrankMode,
+                    title: "Daily Dine-In Code",
+                    badge: "Best for Indoor Cafés",
+                    desc: "Zero GPS popups or indoor drift. Guests enter a 2-digit code posted on your Wi-Fi sign or counter.",
+                  },
+                  {
+                    mode: "hybrid_gps" as AntiPrankMode,
+                    title: "Smart GPS + Code Fallback",
+                    badge: "Recommended Hybrid",
+                    desc: "Checks GPS first; if indoor signal drifts, guest enters Today's Dine-In Code instead of getting blocked.",
+                  },
+                  {
+                    mode: "kds_only" as AntiPrankMode,
+                    title: "KDS Floor Check Only",
+                    badge: "Zero Guest Prompts",
+                    desc: "Guests order instantly. Kitchen KDS flags any ticket placed on a table marked VACANT.",
+                  },
+                ].map((opt) => {
+                  const active = (geoForm.securityMode || "hybrid_gps") === opt.mode;
+                  return (
+                    <button
+                      key={opt.mode}
+                      type="button"
+                      onClick={() =>
+                        setGeoForm({
+                          ...geoForm,
+                          enabled: opt.mode !== "kds_only",
+                          securityMode: opt.mode,
+                        })
+                      }
+                      className={`flex flex-col justify-between rounded-2xl border p-4 text-left transition ${
+                        active
+                          ? "border-amber-500 bg-amber-50/80 ring-2 ring-amber-500/25 shadow-sm"
+                          : "border-slate-200 bg-white hover:bg-slate-50"
+                      }`}
+                    >
+                      <div>
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-black ${
+                            active
+                              ? "bg-amber-500 text-slate-950"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {opt.badge}
+                        </span>
+                        <p className="mt-2 text-sm font-black text-slate-900">{opt.title}</p>
+                        <p className="mt-1 text-xs text-slate-600 leading-relaxed">{opt.desc}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Daily Dine-In Code Config */}
+              {(geoForm.securityMode || "hybrid_gps") !== "kds_only" && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <label
+                      htmlFor="daily-dine-in-code"
+                      className="block text-xs font-black uppercase tracking-wider text-amber-950"
+                    >
+                      Today&apos;s Dine-In Table Passcode
+                    </label>
+                    <p className="text-xs text-amber-900 mt-0.5">
+                      Write this 2-digit code on your café Wi-Fi sign or let waiters share it. Also shown live on Kitchen KDS.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="daily-dine-in-code"
+                      type="text"
+                      maxLength={6}
+                      value={geoForm.dailyDineInCode ?? "42"}
+                      onChange={(e) =>
+                        setGeoForm({ ...geoForm, dailyDineInCode: e.target.value })
+                      }
+                      className="min-h-11 w-24 rounded-xl border border-amber-300 bg-white p-2 text-center text-base font-black tracking-widest text-slate-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGeoForm({
+                          ...geoForm,
+                          dailyDineInCode: String(Math.floor(10 + Math.random() * 90)),
+                        })
+                      }
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800 transition"
+                    >
+                      <RefreshCwIcon size={13} />
+                      <span>New Code</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Strict Mode Toggle */}
-            <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div>
-                <label
-                  htmlFor="geo-strict-toggle"
-                  className="text-sm font-black text-slate-900 cursor-pointer"
-                >
-                  Strict Enforcement Mode
-                </label>
-                <p className="text-xs text-slate-600">
-                  {geoForm.strictMode
-                    ? "Strict: Completely block orders from outside perimeter."
-                    : "Permissive: Allow orders but flag ticket in KDS with Remote Order warning."}
-                </p>
-              </div>
-              <input
-                id="geo-strict-toggle"
-                type="checkbox"
-                checked={geoForm.strictMode}
-                onChange={(e) => setGeoForm({ ...geoForm, strictMode: e.target.checked })}
-                className="h-6 w-6 rounded border-slate-300 text-amber-600 cursor-pointer"
-              />
-            </div>
+            {/* Section C: GPS Perimeter Config (shown when Smart Hybrid mode is selected) */}
+            {(geoForm.securityMode || "hybrid_gps") === "hybrid_gps" && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-4">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  3. GPS Perimeter Coordinates (Used before Dine-In Code Fallback)
+                </h4>
 
-            {/* Coordinates Config */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="geo-lat-input" className="block text-xs font-bold text-slate-700">
-                  Restaurant Latitude
-                </label>
-                <input
-                  id="geo-lat-input"
-                  type="number"
-                  step="0.000001"
-                  required
-                  value={geoForm.latitude}
-                  onChange={(e) =>
-                    setGeoForm({ ...geoForm, latitude: Number(e.target.value) })
-                  }
-                  className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono focus:border-amber-500"
-                />
-              </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="geo-lat-input" className="block text-xs font-bold text-slate-700">
+                      Restaurant Latitude
+                    </label>
+                    <input
+                      id="geo-lat-input"
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={geoForm.latitude}
+                      onChange={(e) =>
+                        setGeoForm({ ...geoForm, latitude: Number(e.target.value) })
+                      }
+                      className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-mono focus:border-amber-500"
+                    />
+                  </div>
 
-              <div>
-                <label htmlFor="geo-lng-input" className="block text-xs font-bold text-slate-700">
-                  Restaurant Longitude
-                </label>
-                <input
-                  id="geo-lng-input"
-                  type="number"
-                  step="0.000001"
-                  required
-                  value={geoForm.longitude}
-                  onChange={(e) =>
-                    setGeoForm({ ...geoForm, longitude: Number(e.target.value) })
-                  }
-                  className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-mono focus:border-amber-500"
-                />
-              </div>
-            </div>
+                  <div>
+                    <label htmlFor="geo-lng-input" className="block text-xs font-bold text-slate-700">
+                      Restaurant Longitude
+                    </label>
+                    <input
+                      id="geo-lng-input"
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={geoForm.longitude}
+                      onChange={(e) =>
+                        setGeoForm({ ...geoForm, longitude: Number(e.target.value) })
+                      }
+                      className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-mono focus:border-amber-500"
+                    />
+                  </div>
+                </div>
 
-            {/* Allowed Perimeter Radius */}
-            <div>
-              <p className="block text-xs font-bold text-slate-700">
-                Allowed Radius: {geoForm.radiusMeters} meters
-              </p>
-              <p className="text-xs text-slate-600 mb-2">
-                Distance radius from restaurant center (covers tables, patio, and terrace)
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {[50, 100, 150, 250, 500].map((radius) => (
+                <div>
+                  <p className="block text-xs font-bold text-slate-700">
+                    Allowed Radius: {geoForm.radiusMeters} meters
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[50, 100, 150, 250, 500].map((radius) => (
+                      <button
+                        key={radius}
+                        type="button"
+                        onClick={() => setGeoForm({ ...geoForm, radiusMeters: radius })}
+                        className={`min-h-10 rounded-xl px-4 py-2 text-xs font-bold transition ${
+                          geoForm.radiusMeters === radius
+                            ? "bg-slate-900 text-white"
+                            : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {radius}m
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-1">
                   <button
-                    key={radius}
                     type="button"
-                    onClick={() => setGeoForm({ ...geoForm, radiusMeters: radius })}
-                    className={`min-h-10 rounded-xl px-4 py-2 text-xs font-bold transition ${
-                      geoForm.radiusMeters === radius
-                        ? "bg-slate-900 text-white"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    disabled={isCapturingGps}
+                    onClick={handleCaptureCurrentLocation}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-full border border-amber-400 bg-amber-50 px-4 py-2.5 text-xs font-black text-amber-950 hover:bg-amber-100 transition shadow-sm"
+                  >
+                    <MapPinIcon size={15} />
+                    <span>
+                      {isCapturingGps ? "Capturing GPS..." : "Set to My Current GPS Location"}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTestDistance}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-50 transition"
+                  >
+                    <ShieldCheckIcon size={15} />
+                    <span>Test My Distance Now</span>
+                  </button>
+                </div>
+
+                {testDistanceResult && (
+                  <div
+                    role="status"
+                    className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${
+                      testDistanceResult.within
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                        : "border-rose-200 bg-rose-50 text-rose-900"
                     }`}
                   >
-                    {radius}m
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Quick Location Capture & Test Tools */}
-            <div className="flex flex-wrap gap-3 pt-2">
-              <button
-                type="button"
-                disabled={isCapturingGps}
-                onClick={handleCaptureCurrentLocation}
-                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-amber-400 bg-amber-50 px-4 py-2.5 text-xs font-black text-amber-950 hover:bg-amber-100 transition shadow-sm"
-              >
-                <MapPinIcon size={15} />
-                <span>
-                  {isCapturingGps ? "Capturing GPS..." : "Set to My Current GPS Location"}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleTestDistance}
-                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-50 transition"
-              >
-                <ShieldCheckIcon size={15} />
-                <span>Test My Distance Now</span>
-              </button>
-            </div>
-
-            {testDistanceResult && (
-              <div
-                role="status"
-                className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${
-                  testDistanceResult.within
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                    : "border-rose-200 bg-rose-50 text-rose-900"
-                }`}
-              >
-                <CheckCircleIcon size={16} />
-                <span>{testDistanceResult.text}</span>
+                    <CheckCircleIcon size={16} />
+                    <span>{testDistanceResult.text}</span>
+                  </div>
+                )}
               </div>
             )}
 
             <div className="border-t border-slate-100 pt-4">
               <button
                 type="submit"
-                className="min-h-11 rounded-full bg-slate-900 px-6 py-3 text-xs font-black text-white hover:bg-slate-800 transition shadow-md"
+                className="min-h-12 rounded-full bg-slate-900 px-8 py-3 text-xs font-black text-white hover:bg-slate-800 transition shadow-md"
               >
-                Save Geofence Settings
+                Save Branding, Currency &amp; Security Settings
               </button>
             </div>
           </form>
-
-          {/* Explanation Banner */}
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-950 space-y-2">
-            <p className="flex items-center gap-1.5 font-bold">
-              <ShieldCheckIcon size={16} className="text-amber-800" />
-              <span>How This Solves The &quot;Photo of QR Code&quot; Prank:</span>
-            </p>
-            <ul className="list-disc pl-5 space-y-1 text-slate-700 leading-relaxed">
-              <li>
-                When a customer scans a table QR code and takes a photo home, they are miles
-                away from the restaurant.
-              </li>
-              <li>
-                When they tap &quot;Place Order&quot; from home, their phone&apos;s GPS reports
-                their location, TableTapp detects they are outside the {geoForm.radiusMeters}m
-                perimeter, and blocks the order ticket.
-              </li>
-              <li>You never have to reprint physical acrylic stand QR codes!</li>
-            </ul>
-          </div>
         </div>
       )}
 
@@ -921,7 +1064,7 @@ export default function OwnerView({
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="tabular-nums font-bold text-slate-900">
-                    ${order.total.toFixed(2)}
+                    {formatPrice(order.total, currency)}
                   </span>
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
@@ -992,7 +1135,7 @@ export default function OwnerView({
                     htmlFor="edit-dish-price"
                     className="block text-xs font-bold text-slate-700"
                   >
-                    Price ($)
+                    Price ({currency === "PKR" ? "Rs." : "$"})
                   </label>
                   <input
                     id="edit-dish-price"
