@@ -657,12 +657,12 @@ export default function GuestView({
       </section>
 
       {/* Main Dining Menu Section */}
-      <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* Menu Items List */}
-        <section className="space-y-6">
+        <section className="min-w-0 space-y-6">
           {/* Search + Category Filter Bar */}
-          <div className="space-y-3">
-            <div className="relative">
+          <div className="min-w-0 space-y-3">
+            <div className="relative w-full">
               <label htmlFor="menu-search-input" className="sr-only">
                 Search menu dishes
               </label>
@@ -672,7 +672,7 @@ export default function GuestView({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search appetizers, steaks, pastas, drinks..."
-                className="min-h-12 w-full rounded-2xl border border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-500"
+                className="min-h-12 w-full max-w-full rounded-2xl border border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-500"
               />
               <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                 <SearchIcon size={18} />
@@ -680,7 +680,7 @@ export default function GuestView({
             </div>
 
             {/* Category Pills (44px min height, 8px gap) */}
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <div className="flex max-w-full gap-2 overflow-x-auto pb-1 scrollbar-none">
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat}
@@ -698,7 +698,7 @@ export default function GuestView({
             </div>
 
             {/* Dietary Tags Filter (40px+ height, 8px gap) */}
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <div className="flex max-w-full gap-2 overflow-x-auto pb-1 scrollbar-none">
               {DIETARY_TAGS.map((tag) => (
                 <button
                   key={tag}
@@ -739,31 +739,31 @@ export default function GuestView({
             </div>
           ) : (
             /* Dishes Grid */
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {filteredItems.map((item) => (
                 <div
                   key={item.id}
-                  className="group flex flex-col justify-between rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm transition hover:border-amber-400 hover:shadow-md"
+                  className="group min-w-0 flex flex-col justify-between rounded-[24px] border border-slate-200 bg-white p-4 sm:p-5 shadow-sm transition hover:border-amber-400 hover:shadow-md"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">
                         {item.tag}
                       </span>
-                      <span className="tabular-nums text-base font-black text-slate-900">
+                      <span className="tabular-nums shrink-0 text-base font-black text-slate-900">
                         ${item.price.toFixed(2)}
                       </span>
                     </div>
 
-                    <h3 className="font-display mt-2.5 text-lg font-bold text-slate-900 group-hover:text-amber-700 transition">
+                    <h3 className="font-display mt-2.5 text-lg font-bold text-slate-900 group-hover:text-amber-700 transition break-words">
                       {item.name}
                     </h3>
-                    <p className="mt-1 text-xs text-slate-600 leading-relaxed">
+                    <p className="mt-1 text-xs text-slate-600 leading-relaxed break-words">
                       {item.description}
                     </p>
                   </div>
 
-                  <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3.5">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3.5">
                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500">
                       <ClockIcon size={13} />
                       <span>~{item.prepTimeMinutes || 10}m prep</span>

@@ -281,9 +281,9 @@ export default function KitchenView({
       </section>
 
       {/* Main Grid: Active Orders + Service Alert Side Rail */}
-      <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)]">
         {/* Left Column: Tickets */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {/* Sub Navigation */}
           <div className="flex items-center justify-between">
             <div className="flex flex-wrap gap-2">

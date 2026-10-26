@@ -357,9 +357,9 @@ export default function OwnerView({
 
       {/* Subtab 1: Menu Manager */}
       {subTab === "menu" && (
-        <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
           {/* Menu Items Table */}
-          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
                 <h3 className="font-display text-xl font-bold text-slate-900">
@@ -560,8 +560,8 @@ export default function OwnerView({
 
       {/* Subtab 2: QR Generator & Stands */}
       {subTab === "qr" && (
-        <div className="grid gap-8 lg:grid-cols-[400px_1fr]">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[400px_minmax(0,1fr)]">
+          <div className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 sm:p-6 shadow-sm space-y-4">
             <h3 className="font-display text-lg font-bold text-slate-900">
               QR Code Customizer
             </h3>
