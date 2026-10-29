@@ -36,7 +36,12 @@ import {
   updateTableStatus,
 } from "@/lib/tables";
 import { getStoredGeoConfig, saveStoredGeoConfig } from "@/lib/geo";
-import { findRestaurantBySlugOrKey, restaurantToGeoConfig } from "@/lib/restaurants";
+import {
+  findRestaurantBySlugOrKey,
+  isRestaurantSuspended,
+  restaurantToGeoConfig,
+  setRestaurantSuspensionFlag,
+} from "@/lib/restaurants";
 import {
   fetchGeoConfigFromSupabase,
   fetchMenuFromSupabase,
@@ -90,8 +95,9 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
   const [authenticatedRole, setAuthenticatedRole] = useState<"none" | "kitchen" | "owner">("none");
   const [isClientLoaded, setIsClientLoaded] = useState(false);
 
-  const currentRestaurant = restaurantSlug ? findRestaurantBySlugOrKey(restaurantSlug) : null;
-  const isSuspended = currentRestaurant?.status === "suspended";
+  const activeTenantSlug = (restaurantSlug || "heatbox").toLowerCase();
+  const currentRestaurant = findRestaurantBySlugOrKey(activeTenantSlug);
+  const [isSuspended, setIsSuspended] = useState<boolean>(() => isRestaurantSuspended(activeTenantSlug));
 
   // Synced Staff State
   const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -110,6 +116,18 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
     } else {
       setActiveTab("kitchen");
     }
+
+    // Live restaurant status check
+    fetch(`/api/restaurants/${activeTenantSlug}/status`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.status) {
+          const suspended = data.status === "suspended";
+          setIsSuspended(suspended);
+          setRestaurantSuspensionFlag(activeTenantSlug, data.id || "", suspended);
+        }
+      })
+      .catch(() => {});
 
     const matched = restaurantSlug ? findRestaurantBySlugOrKey(restaurantSlug) : null;
     const initialGeo = matched ? restaurantToGeoConfig(matched) : getStoredGeoConfig();
@@ -368,6 +386,17 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
               : t
           );
           saveStoredTables(updated);
+          break;
+        }
+        case "RESTAURANT_STATUS_CHANGED": {
+          if (
+            event.payload.slug?.toLowerCase() === activeTenantSlug ||
+            event.payload.restaurantId === currentRestaurant?.id
+          ) {
+            const suspended = event.payload.status === "suspended";
+            setIsSuspended(suspended);
+            setRestaurantSuspensionFlag(activeTenantSlug, event.payload.restaurantId, suspended);
+          }
           break;
         }
       }

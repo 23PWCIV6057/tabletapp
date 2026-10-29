@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { findRestaurantBySlugOrKey, INITIAL_RESTAURANTS } from "@/lib/restaurants";
+import { findRestaurantBySlugOrKey, INITIAL_RESTAURANTS, isRestaurantSuspended } from "@/lib/restaurants";
 
 const DEFAULT_STAFF_PIN = process.env.STAFF_PIN || "1234";
 const DEFAULT_OWNER_PIN = process.env.OWNER_PIN || "8888";
@@ -33,6 +33,13 @@ export async function POST(req: NextRequest) {
 
     // Resolve tenant specific PINs
     const matchedRestaurant = restaurantIdentifier ? findRestaurantBySlugOrKey(restaurantIdentifier) : INITIAL_RESTAURANTS[0];
+    const targetSlug = matchedRestaurant?.slug || restaurantIdentifier || "heatbox";
+    if (matchedRestaurant?.status === "suspended" || isRestaurantSuspended(targetSlug)) {
+      return NextResponse.json(
+        { success: false, error: "This restaurant is currently suspended by management. Staff access is blocked." },
+        { status: 403 }
+      );
+    }
     const targetOwnerPin = matchedRestaurant?.ownerPin || DEFAULT_OWNER_PIN;
     const targetStaffPin = matchedRestaurant?.staffPin || DEFAULT_STAFF_PIN;
     const tenantId = matchedRestaurant?.id || "global";

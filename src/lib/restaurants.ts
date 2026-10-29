@@ -31,29 +31,67 @@ export const HEATBOX_RESTAURANT: Restaurant = {
 
 export const INITIAL_RESTAURANTS: Restaurant[] = [HEATBOX_RESTAURANT];
 
+// Server-side in-memory list for serverless runtime continuity
+let serverRestaurantsCache: Restaurant[] = [...INITIAL_RESTAURANTS];
+
 const STORAGE_KEY = "tabletapp_restaurants_v2";
 
 export function getStoredRestaurants(): Restaurant[] {
-  if (typeof window === "undefined") return INITIAL_RESTAURANTS;
+  if (typeof window === "undefined") {
+    return serverRestaurantsCache;
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_RESTAURANTS));
-      return INITIAL_RESTAURANTS;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(serverRestaurantsCache));
+      return serverRestaurantsCache;
     }
     const parsed: Restaurant[] = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      return INITIAL_RESTAURANTS;
+      return serverRestaurantsCache;
     }
     return parsed;
   } catch {
-    return INITIAL_RESTAURANTS;
+    return serverRestaurantsCache;
   }
 }
 
 export function saveStoredRestaurants(restaurants: Restaurant[]) {
+  serverRestaurantsCache = restaurants;
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(restaurants));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(restaurants));
+    // Keep individual suspension flags synchronized
+    for (const r of restaurants) {
+      setRestaurantSuspensionFlag(r.slug, r.id, r.status === "suspended");
+    }
+  } catch {
+    // Ignore storage quota
+  }
+}
+
+export function isRestaurantSuspended(slugOrKey: string): boolean {
+  const norm = (slugOrKey || "heatbox").trim().toLowerCase();
+  if (typeof window !== "undefined") {
+    const flag = localStorage.getItem(`tabletapp_suspended_${norm}`);
+    if (flag === "true") return true;
+    if (flag === "false") return false;
+  }
+  const found = findRestaurantBySlugOrKey(norm);
+  return found?.status === "suspended";
+}
+
+export function setRestaurantSuspensionFlag(slug: string, id: string, suspended: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    const val = suspended ? "true" : "false";
+    localStorage.setItem(`tabletapp_suspended_${(slug || "").toLowerCase()}`, val);
+    if (id) {
+      localStorage.setItem(`tabletapp_suspended_${id.toLowerCase()}`, val);
+    }
+  } catch {
+    // Ignore
+  }
 }
 
 export function findRestaurantBySlugOrKey(slugOrKey: string): Restaurant | null {

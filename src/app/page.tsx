@@ -46,7 +46,12 @@ import {
   saveStoredGeoConfig,
   saveStoredLeaderboard,
 } from "@/lib/geo";
-import { findRestaurantBySlugOrKey, restaurantToGeoConfig } from "@/lib/restaurants";
+import {
+  findRestaurantBySlugOrKey,
+  isRestaurantSuspended,
+  restaurantToGeoConfig,
+  setRestaurantSuspensionFlag,
+} from "@/lib/restaurants";
 import {
   fetchGeoConfigFromSupabase,
   fetchLeaderboardFromSupabase,
@@ -99,8 +104,9 @@ function mergeCloudOrdersWithLocalMeta(
 export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {}) {
   const [isStaff, setIsStaff] = useState(false);
 
-  const currentRestaurant = restaurantSlug ? findRestaurantBySlugOrKey(restaurantSlug) : null;
-  const isSuspended = currentRestaurant?.status === "suspended";
+  const activeTenantSlug = (restaurantSlug || "heatbox").toLowerCase();
+  const currentRestaurant = findRestaurantBySlugOrKey(activeTenantSlug);
+  const [isSuspended, setIsSuspended] = useState<boolean>(() => isRestaurantSuspended(activeTenantSlug));
 
   // Core Customer Synced State
   const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -170,6 +176,18 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
         }
       }
     }
+
+    // Live restaurant status check
+    fetch(`/api/restaurants/${activeTenantSlug}/status`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.status) {
+          const suspended = data.status === "suspended";
+          setIsSuspended(suspended);
+          setRestaurantSuspensionFlag(activeTenantSlug, data.id || "", suspended);
+        }
+      })
+      .catch(() => {});
 
     const matched = restaurantSlug ? findRestaurantBySlugOrKey(restaurantSlug) : null;
     let initialGeo = matched ? restaurantToGeoConfig(matched) : getStoredGeoConfig();
@@ -401,6 +419,17 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
           saveStoredTables(updated);
           break;
         }
+        case "RESTAURANT_STATUS_CHANGED": {
+          if (
+            event.payload.slug?.toLowerCase() === activeTenantSlug ||
+            event.payload.restaurantId === currentRestaurant?.id
+          ) {
+            const suspended = event.payload.status === "suspended";
+            setIsSuspended(suspended);
+            setRestaurantSuspensionFlag(activeTenantSlug, event.payload.restaurantId, suspended);
+          }
+          break;
+        }
       }
     });
 
@@ -553,6 +582,10 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
     items: OrderItem[],
     meta?: { geoVerified?: boolean; distanceMeters?: number }
   ) => {
+    if (isSuspended || isRestaurantSuspended(activeTenantSlug)) {
+      alert("This dining location is currently suspended by management. New orders cannot be placed.");
+      return;
+    }
     const activeTable = tableNumber || 1;
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const serviceFee = getServiceFee(subtotal, geoConfig);
@@ -587,6 +620,10 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
   };
 
   const handleRequestService = (type: ServiceType) => {
+    if (isSuspended || isRestaurantSuspended(activeTenantSlug)) {
+      alert("This restaurant is currently suspended.");
+      return;
+    }
     const activeTable = tableNumber || 1;
     const newRequest: ServiceRequest = {
       id: `srv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { MenuItem, Restaurant } from "@/types";
+import { MenuItem, Restaurant, RestaurantStatus } from "@/types";
 import {
   AlertTriangleIcon,
   CheckCircleIcon,
@@ -20,6 +20,7 @@ import {
   XIcon,
 } from "@/components/Icons";
 import { broadcastSyncEvent, getStoredOrders, saveStoredOrders } from "@/lib/sync";
+import { saveStoredRestaurants, setRestaurantSuspensionFlag } from "@/lib/restaurants";
 
 export default function DeveloperPortalPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -239,25 +240,41 @@ export default function DeveloperPortalPage() {
   };
 
   const handleToggleSuspend = async (r: Restaurant) => {
-    const nextStatus = r.status === "active" ? "suspended" : "active";
+    const nextStatus: RestaurantStatus = r.status === "active" ? "suspended" : "active";
     const confirmMsg =
       nextStatus === "suspended"
-        ? `Suspend ${r.name}? Guest ordering will be paused immediately until reactivated.`
-        : `Reactivate ${r.name}?`;
+        ? `Suspend ${r.name}? In dev mode, this deactivates the restaurant completely: customer ordering and staff operations will be blocked immediately in all cases.`
+        : `Reactivate ${r.name}? All customer and staff portals will resume.`;
 
     if (!confirm(confirmMsg)) return;
 
+    // 1. Instantly update UI state and local storage flags
+    const updated = restaurants.map((item) =>
+      item.id === r.id ? { ...item, status: nextStatus, updatedAt: Date.now() } : item
+    );
+    setRestaurants(updated);
+    saveStoredRestaurants(updated);
+    setRestaurantSuspensionFlag(r.slug, r.id, nextStatus === "suspended");
+
+    // 2. Broadcast real-time lock/unlock event to all open tabs immediately
+    broadcastSyncEvent({
+      type: "RESTAURANT_STATUS_CHANGED",
+      payload: { restaurantId: r.id, slug: r.slug, status: nextStatus },
+    });
+
+    setActionSuccessToast(
+      `${r.name} is now ${nextStatus === "suspended" ? "DEACTIVATED (blocked in all cases)" : "ACTIVE"}.`
+    );
+
+    // 3. Persist to backend and Supabase
     try {
-      const res = await fetch(`/api/dev/restaurants/${r.id}`, {
+      await fetch(`/api/dev/restaurants/${r.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus }),
       });
-      if (res.ok) {
-        loadFleet();
-      }
     } catch {
-      alert("Failed to update status.");
+      // Local flag already ensures lockdown
     }
   };
 
@@ -625,15 +642,6 @@ export default function DeveloperPortalPage() {
           </div>
 
           <div className="flex items-center gap-2.5">
-            <Link
-              href="/r/heatbox"
-              target="_blank"
-              className="hidden sm:inline-flex min-h-10 items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-700 transition"
-            >
-              <span>View Heat Box Live</span>
-              <span className="text-amber-400">↗</span>
-            </Link>
-
             <button
               type="button"
               onClick={handleLogout}
