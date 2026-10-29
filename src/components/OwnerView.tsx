@@ -86,7 +86,42 @@ export default function OwnerView({
     tag: "Popular",
     description: "",
     prepTime: "10",
+    imageUrl: "",
   });
+
+  // Client-side image compressor (resizes uploaded photos to max 480x320 JPEG ~25KB for instant Supabase sync)
+  const compressImageFile = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX_W = 480;
+          const MAX_H = 320;
+          let width = img.width;
+          let height = img.height;
+          if (width > MAX_W || height > MAX_H) {
+            const ratio = Math.min(MAX_W / width, MAX_H / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(String(reader.result || ""));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.72));
+        };
+        img.onerror = () => reject(new Error("Invalid image file"));
+        img.src = String(reader.result || "");
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
 
   // Edit Item Modal State
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
@@ -141,6 +176,7 @@ export default function OwnerView({
       tag: form.tag.trim() || "New",
       description: form.description.trim() || "Chef's specialty made fresh daily.",
       prepTimeMinutes: Number(form.prepTime) || 10,
+      imageUrl: form.imageUrl.trim() || undefined,
       available: true,
     };
 
@@ -152,6 +188,7 @@ export default function OwnerView({
       tag: "Popular",
       description: "",
       prepTime: "10",
+      imageUrl: "",
     });
   };
 
@@ -388,9 +425,17 @@ export default function OwnerView({
                   className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-800 font-black text-sm">
-                      {dish.category[0]}
-                    </div>
+                    {dish.imageUrl ? (
+                      <img
+                        src={dish.imageUrl}
+                        alt={dish.name}
+                        className="h-12 w-12 shrink-0 rounded-xl object-cover border border-slate-200 bg-slate-100"
+                      />
+                    ) : (
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-800 font-black text-sm">
+                        {dish.category[0]}
+                      </div>
+                    )}
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h4 className="text-sm font-black text-slate-900">{dish.name}</h4>
@@ -552,6 +597,69 @@ export default function OwnerView({
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm focus:border-amber-500"
                 />
+              </div>
+
+              <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                <label
+                  htmlFor="add-dish-image-file"
+                  className="block text-xs font-bold text-slate-700"
+                >
+                  Dish Picture (Optional)
+                </label>
+
+                {form.imageUrl && (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={form.imageUrl}
+                        alt="New dish preview"
+                        className="h-12 w-16 shrink-0 rounded-lg object-cover border border-slate-200"
+                      />
+                      <span className="text-xs font-semibold text-emerald-700 truncate">
+                        Photo attached & ready
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, imageUrl: "" })}
+                      className="min-h-9 shrink-0 rounded-lg bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-100 transition"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+
+                <input
+                  id="add-dish-image-file"
+                  type="file"
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      const dataUrl = await compressImageFile(file);
+                      setForm((prev) => ({ ...prev, imageUrl: dataUrl }));
+                    } catch {
+                      alert("Could not process image file. Please try another photo.");
+                    }
+                    e.target.value = "";
+                  }}
+                  className="block w-full text-xs text-slate-600 file:mr-3 file:min-h-9 file:cursor-pointer file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-slate-800"
+                />
+
+                <div>
+                  <label htmlFor="add-dish-image-url" className="sr-only">
+                    Or paste dish image URL
+                  </label>
+                  <input
+                    id="add-dish-image-url"
+                    type="text"
+                    placeholder="Or paste image URL (https://...)"
+                    value={form.imageUrl.startsWith("data:") ? "" : form.imageUrl}
+                    onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
+                    className="min-h-10 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs focus:border-amber-500"
+                  />
+                </div>
               </div>
 
               <button
@@ -1226,6 +1334,75 @@ export default function OwnerView({
                   }
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-sm focus:border-amber-500"
                 />
+              </div>
+
+              <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                <label
+                  htmlFor="edit-dish-image-file"
+                  className="block text-xs font-bold text-slate-700"
+                >
+                  Dish Picture
+                </label>
+
+                {editingItem.imageUrl && (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={editingItem.imageUrl}
+                        alt={editingItem.name}
+                        className="h-12 w-16 shrink-0 rounded-lg object-cover border border-slate-200"
+                      />
+                      <span className="text-xs font-semibold text-emerald-700 truncate">
+                        Current dish photo
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingItem({ ...editingItem, imageUrl: "" })}
+                      className="min-h-9 shrink-0 rounded-lg bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-100 transition"
+                    >
+                      Remove Photo
+                    </button>
+                  </div>
+                )}
+
+                <input
+                  id="edit-dish-image-file"
+                  type="file"
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      const dataUrl = await compressImageFile(file);
+                      setEditingItem((prev) => (prev ? { ...prev, imageUrl: dataUrl } : null));
+                    } catch {
+                      alert("Could not process image file. Please try another photo.");
+                    }
+                    e.target.value = "";
+                  }}
+                  className="block w-full text-xs text-slate-600 file:mr-3 file:min-h-9 file:cursor-pointer file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-slate-800"
+                />
+
+                <div>
+                  <label htmlFor="edit-dish-image-url" className="sr-only">
+                    Or paste dish image URL
+                  </label>
+                  <input
+                    id="edit-dish-image-url"
+                    type="text"
+                    placeholder="Or paste image URL (https://...)"
+                    value={
+                      editingItem.imageUrl && !editingItem.imageUrl.startsWith("data:")
+                        ? editingItem.imageUrl
+                        : ""
+                    }
+                    onChange={(e) =>
+                      setEditingItem({ ...editingItem, imageUrl: e.target.value })
+                    }
+                    className="min-h-10 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs focus:border-amber-500"
+                  />
+                </div>
               </div>
 
               <div className="mt-5 flex gap-2 border-t border-slate-100 pt-3.5">

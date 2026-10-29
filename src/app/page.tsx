@@ -245,7 +245,8 @@ export default function Home() {
                     cm.available !== p.available ||
                     cm.name !== p.name ||
                     cm.description !== p.description ||
-                    cm.tag !== p.tag
+                    cm.tag !== p.tag ||
+                    cm.imageUrl !== p.imageUrl
                   );
                 });
               if (isDiff) {

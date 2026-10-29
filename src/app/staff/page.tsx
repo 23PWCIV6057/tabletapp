@@ -217,7 +217,8 @@ export default function StaffHubPage() {
                     cm.available !== p.available ||
                     cm.name !== p.name ||
                     cm.description !== p.description ||
-                    cm.tag !== p.tag
+                    cm.tag !== p.tag ||
+                    cm.imageUrl !== p.imageUrl
                   );
                 });
               if (isDiff) {
@@ -409,7 +410,8 @@ export default function StaffHubPage() {
         prev.available !== item.available ||
         prev.description !== item.description ||
         prev.tag !== item.tag ||
-        prev.prepTimeMinutes !== item.prepTimeMinutes
+        prev.prepTimeMinutes !== item.prepTimeMinutes ||
+        prev.imageUrl !== item.imageUrl
       ) {
         syncMenuItemUpdateToSupabase(item);
       }

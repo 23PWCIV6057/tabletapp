@@ -87,6 +87,29 @@ export async function fetchServicesFromSupabase(): Promise<ServiceRequest[] | nu
   }
 }
 
+const IMG_TAG_REGEX = /\n?\[\[IMG:([\s\S]+?)\]\]$/;
+
+function packDescriptionWithImage(description: string, imageUrl?: string): string {
+  const cleanDesc = (description || "").replace(IMG_TAG_REGEX, "").trim();
+  const cleanImg = (imageUrl || "").trim();
+  return `${cleanDesc}\n[[IMG:${cleanImg || "NONE"}]]`;
+}
+
+function unpackDescriptionAndImage(rawDesc: string): {
+  description: string;
+  imageUrl?: string;
+  hasExplicitTag: boolean;
+} {
+  const match = rawDesc.match(IMG_TAG_REGEX);
+  if (!match) return { description: rawDesc, hasExplicitTag: false };
+  const val = match[1].trim();
+  return {
+    description: rawDesc.replace(IMG_TAG_REGEX, "").trim(),
+    imageUrl: val === "NONE" ? undefined : val,
+    hasExplicitTag: true,
+  };
+}
+
 export async function fetchMenuFromSupabase(): Promise<MenuItem[] | null> {
   if (!isSupabaseConfigured()) return null;
   try {
@@ -113,20 +136,23 @@ export async function fetchMenuFromSupabase(): Promise<MenuItem[] | null> {
             }))
           : undefined;
 
-      if (!modifierGroups) {
-        const fallback = initialMenuData.find(
-          (m) => m.id === Number(rec.id) || m.name.toLowerCase() === name.toLowerCase()
-        );
-        if (fallback?.modifierGroups) {
-          modifierGroups = fallback.modifierGroups;
-        }
+      const fallback = initialMenuData.find(
+        (m) => m.id === Number(rec.id) || m.name.toLowerCase() === name.toLowerCase()
+      );
+      if (!modifierGroups && fallback?.modifierGroups) {
+        modifierGroups = fallback.modifierGroups;
       }
+
+      const { description, imageUrl, hasExplicitTag } = unpackDescriptionAndImage(
+        (rec.description as string) || ""
+      );
 
       return {
         id: Number(rec.id),
         name,
         category: ((rec.categories as { name?: string })?.name || "Starters") as MenuCategory,
-        description: (rec.description as string) || "",
+        description,
+        imageUrl: hasExplicitTag ? imageUrl : fallback?.imageUrl,
         price: Number(rec.price),
         tag: (rec.tag as string) || "Popular",
         available: Boolean(rec.available),
@@ -369,7 +395,7 @@ export async function syncMenuItemUpdateToSupabase(item: MenuItem): Promise<bool
       headers: getHeaders(),
       body: JSON.stringify({
         name: item.name,
-        description: item.description,
+        description: packDescriptionWithImage(item.description, item.imageUrl),
         price: item.price,
         tag: item.tag,
         available: item.available,
@@ -404,7 +430,7 @@ export async function syncNewMenuItemToSupabase(
         restaurant_id: restaurantId,
         category_id: categoryId,
         name: item.name,
-        description: item.description,
+        description: packDescriptionWithImage(item.description, item.imageUrl),
         price: item.price,
         tag: item.tag,
         available: item.available,

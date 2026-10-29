@@ -780,6 +780,16 @@ export default function GuestView({
                   className="group min-w-0 flex flex-col justify-between rounded-[24px] border border-slate-200 bg-white p-4 sm:p-5 shadow-sm transition hover:border-amber-400 hover:shadow-md"
                 >
                   <div className="min-w-0">
+                    {item.imageUrl && (
+                      <div className="relative mb-3.5 h-40 w-full overflow-hidden rounded-2xl border border-slate-100 bg-slate-100">
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
+                          loading="lazy"
+                          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                        />
+                      </div>
+                    )}
                     <div className="flex items-start justify-between gap-2">
                       <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">
                         {item.tag}

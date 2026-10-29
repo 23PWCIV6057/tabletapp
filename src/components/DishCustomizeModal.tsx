@@ -96,6 +96,15 @@ export default function DishCustomizeModal({
       }}
     >
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-t-[32px] sm:rounded-[32px] border border-slate-200 bg-white p-6 shadow-2xl text-slate-900">
+        {item.imageUrl && (
+          <div className="mb-4 h-44 w-full overflow-hidden rounded-2xl border border-slate-100 bg-slate-100">
+            <img
+              src={item.imageUrl}
+              alt={item.name}
+              className="h-full w-full object-cover"
+            />
+          </div>
+        )}
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">

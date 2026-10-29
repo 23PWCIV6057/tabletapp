@@ -23,6 +23,7 @@ export type MenuItem = {
   price: number;
   tag: DietaryTag | string;
   available: boolean;
+  imageUrl?: string;
   modifierGroups?: ModifierGroup[];
   prepTimeMinutes?: number;
 };

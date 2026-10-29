@@ -15,6 +15,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Popular",
     available: true,
     prepTimeMinutes: 8,
+    imageUrl: "https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?auto=format&fit=crop&w=600&q=80",
     modifierGroups: [
       {
         id: "dip",
@@ -37,6 +38,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Chef Pick",
     available: true,
     prepTimeMinutes: 7,
+    imageUrl: "https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&w=600&q=80",
     modifierGroups: [
       {
         id: "portion",
@@ -58,6 +60,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Vegetarian",
     available: true,
     prepTimeMinutes: 5,
+    imageUrl: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=600&q=80",
   },
   {
     id: 4,
@@ -68,6 +71,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Signature",
     available: true,
     prepTimeMinutes: 14,
+    imageUrl: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80",
     modifierGroups: [
       {
         id: "grain",
@@ -90,6 +94,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Chef Pick",
     available: true,
     prepTimeMinutes: 18,
+    imageUrl: "https://images.unsplash.com/photo-1558030006-450675393462?auto=format&fit=crop&w=600&q=80",
     modifierGroups: [
       {
         id: "doneness",
@@ -114,6 +119,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Vegetarian",
     available: true,
     prepTimeMinutes: 12,
+    imageUrl: "https://images.unsplash.com/photo-1555949258-eb67b1ef0ceb?auto=format&fit=crop&w=600&q=80",
   },
   {
     id: 7,
@@ -124,6 +130,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Popular",
     available: true,
     prepTimeMinutes: 10,
+    imageUrl: "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=600&q=80",
   },
   {
     id: 8,
@@ -134,6 +141,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Sweet",
     available: true,
     prepTimeMinutes: 4,
+    imageUrl: "https://images.unsplash.com/photo-1533134242443-d4fd215305ad?auto=format&fit=crop&w=600&q=80",
   },
   {
     id: 9,
@@ -144,6 +152,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Cold",
     available: true,
     prepTimeMinutes: 3,
+    imageUrl: "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80",
   },
   {
     id: 10,
@@ -154,6 +163,7 @@ export const initialMenuData: MenuItem[] = [
     tag: "Cold",
     available: true,
     prepTimeMinutes: 2,
+    imageUrl: "https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=600&q=80",
   },
 ];
 
@@ -277,7 +287,12 @@ export function getStoredMenu(): MenuItem[] {
       localStorage.setItem(STORAGE_MENU_KEY, JSON.stringify(initialMenuData));
       return initialMenuData;
     }
-    return JSON.parse(data);
+    const parsed: MenuItem[] = JSON.parse(data);
+    return parsed.map((item) => {
+      if ("imageUrl" in item) return item;
+      const fallback = initialMenuData.find((d) => d.id === item.id);
+      return fallback?.imageUrl ? { ...item, imageUrl: fallback.imageUrl } : item;
+    });
   } catch {
     return initialMenuData;
   }
