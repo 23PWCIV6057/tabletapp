@@ -21,8 +21,17 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TableTapp | Sunshine Bistro QR Ordering & KDS",
-  description: "Hospitality QR table ordering, real-time Kitchen Display System, and executive restaurant management.",
+  title: "TableTapp | Smart QR Table Ordering & Kitchen KDS",
+  description:
+    "Hospitality QR table ordering, real-time Kitchen Display System, and executive restaurant management.",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    shortcut: "/icon.svg",
+    apple: "/apple-icon",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
