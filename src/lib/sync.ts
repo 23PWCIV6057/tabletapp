@@ -1,9 +1,11 @@
 import { MenuItem, OrderCard, ServiceRequest, SyncEvent } from "@/types";
+import { HEATBOX_MENU_DATA } from "@/lib/presets";
 
 const CHANNEL_NAME = "table_tapp_bus";
 const STORAGE_ORDERS_KEY = "tabletapp_orders_v1";
 const STORAGE_SERVICES_KEY = "tabletapp_services_v1";
 const STORAGE_MENU_KEY = "tabletapp_menu_v1";
+const STORAGE_HEATBOX_MENU_KEY = "tabletapp_menu_heatbox_v1";
 
 export const initialMenuData: MenuItem[] = [
   {
@@ -301,6 +303,32 @@ export function getStoredMenu(): MenuItem[] {
 export function saveStoredMenu(menu: MenuItem[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_MENU_KEY, JSON.stringify(menu));
+}
+
+export function getPresetMenu(preset: "default" | "heatbox" = "default"): MenuItem[] {
+  if (preset === "heatbox") {
+    if (typeof window === "undefined") return HEATBOX_MENU_DATA;
+    try {
+      const data = localStorage.getItem(STORAGE_HEATBOX_MENU_KEY);
+      if (!data) {
+        localStorage.setItem(STORAGE_HEATBOX_MENU_KEY, JSON.stringify(HEATBOX_MENU_DATA));
+        return HEATBOX_MENU_DATA;
+      }
+      return JSON.parse(data);
+    } catch {
+      return HEATBOX_MENU_DATA;
+    }
+  }
+  return getStoredMenu();
+}
+
+export function savePresetMenu(menu: MenuItem[], preset: "default" | "heatbox" = "default") {
+  if (typeof window === "undefined") return;
+  if (preset === "heatbox") {
+    localStorage.setItem(STORAGE_HEATBOX_MENU_KEY, JSON.stringify(menu));
+  } else {
+    saveStoredMenu(menu);
+  }
 }
 
 export function getStoredOrders(): OrderCard[] {

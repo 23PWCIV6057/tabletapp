@@ -123,20 +123,37 @@ export default function GuestView({
     return () => clearInterval(interval);
   }, [serviceCooldown]);
 
+  const categories = useMemo(() => {
+    const unique = Array.from(new Set(menu.map((item) => item.category)));
+    const sorted = unique.sort((a, b) => (a === "Deals" ? -1 : b === "Deals" ? 1 : 0));
+    return ["All", ...sorted];
+  }, [menu]);
+
+  const dietaryTags = useMemo(() => {
+    const unique = Array.from(new Set(menu.map((item) => item.tag).filter(Boolean)));
+    return ["All", ...unique.slice(0, 7)];
+  }, [menu]);
+
+  const dealItems = useMemo(
+    () => menu.filter((item) => item.category === "Deals"),
+    [menu]
+  );
+
   const filteredItems = useMemo(() => {
+    const activeCat = categories.includes(selectedCategory) ? selectedCategory : "All";
+    const activeTag = dietaryTags.includes(selectedTag) ? selectedTag : "All";
     return menu.filter((item) => {
-      const matchesCategory =
-        selectedCategory === "All" || item.category === selectedCategory;
+      const matchesCategory = activeCat === "All" || item.category === activeCat;
       const matchesTag =
-        selectedTag === "All" ||
-        item.tag.toLowerCase().includes(selectedTag.toLowerCase());
+        activeTag === "All" ||
+        item.tag.toLowerCase().includes(activeTag.toLowerCase());
       const matchesSearch =
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase());
 
       return matchesCategory && matchesTag && matchesSearch;
     });
-  }, [menu, selectedCategory, selectedTag, searchQuery]);
+  }, [menu, categories, dietaryTags, selectedCategory, selectedTag, searchQuery]);
 
   const handleAddToCart = (item: OrderItem) => {
     setCart((prev) => {
@@ -715,25 +732,29 @@ export default function GuestView({
 
             {/* Category Pills (44px min height, 8px gap) */}
             <div className="flex max-w-full gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <button
                   key={cat}
                   type="button"
                   onClick={() => setSelectedCategory(cat)}
                   className={`min-h-11 shrink-0 rounded-full px-4 py-2 text-xs font-bold transition ${
                     selectedCategory === cat
-                      ? "bg-slate-900 text-white shadow-md"
-                      : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+                      ? cat === "Deals"
+                        ? "bg-rose-600 text-white shadow-md"
+                        : "bg-slate-900 text-white shadow-md"
+                      : cat === "Deals"
+                        ? "bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 font-black"
+                        : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
                   }`}
                 >
-                  {cat}
+                  {cat === "Deals" ? `Hot Deals (${dealItems.length})` : cat}
                 </button>
               ))}
             </div>
 
             {/* Dietary Tags Filter (40px+ height, 8px gap) */}
             <div className="flex max-w-full gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {DIETARY_TAGS.map((tag) => (
+              {dietaryTags.map((tag) => (
                 <button
                   key={tag}
                   type="button"
@@ -749,6 +770,82 @@ export default function GuestView({
               ))}
             </div>
           </div>
+
+          {/* Featured Hot Deals & Value Combos Spotlight (shown when Deals exist) */}
+          {dealItems.length > 0 && selectedCategory === "All" && !searchQuery && selectedTag === "All" && (
+            <div className="rounded-[28px] border-2 border-amber-400/80 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-5 text-white shadow-xl">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-0.5 text-xs font-black uppercase tracking-wider text-slate-950">
+                    <SparklesIcon size={13} />
+                    <span>Bundle & Save</span>
+                  </span>
+                  <h3 className="font-display mt-1.5 text-xl font-bold text-white">
+                    Special Deals & Family Combos
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    Swipe to explore {dealItems.length} value combos — tap any deal to pick your flavors & drinks
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory("Deals")}
+                  className="min-h-10 rounded-full border border-amber-400/50 bg-amber-500/10 px-4 py-2 text-xs font-bold text-amber-300 hover:bg-amber-500/20 transition"
+                >
+                  View All {dealItems.length} Deals →
+                </button>
+              </div>
+
+              <div className="mt-4 flex gap-4 overflow-x-auto pb-2 scrollbar-none">
+                {dealItems.map((deal) => (
+                  <div
+                    key={deal.id}
+                    className="flex w-[265px] sm:w-[290px] shrink-0 flex-col justify-between rounded-2xl border border-slate-800 bg-slate-900/95 p-3.5 shadow-lg transition hover:border-amber-400"
+                  >
+                    <div>
+                      {deal.imageUrl && (
+                        <div className="relative mb-3 h-36 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-800">
+                          <img
+                            src={deal.imageUrl}
+                            alt={deal.name}
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                          <span className="absolute left-2.5 top-2.5 rounded-full bg-rose-600 px-2.5 py-0.5 text-xs font-black text-white shadow">
+                            {deal.tag}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="font-display text-base font-bold text-white">
+                          {deal.name}
+                        </h4>
+                        <span className="tabular-nums shrink-0 rounded-lg bg-amber-500/20 px-2 py-0.5 text-sm font-black text-amber-300">
+                          {formatPrice(deal.price, currency)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                        {deal.description}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!deal.available}
+                      onClick={() => setCustomizingItem(deal)}
+                      className={`mt-3.5 min-h-11 w-full rounded-full py-2.5 text-xs font-black transition ${
+                        deal.available
+                          ? "bg-amber-500 text-slate-950 hover:bg-amber-400 active:scale-95 shadow-md"
+                          : "bg-slate-800 text-slate-500"
+                      }`}
+                    >
+                      {deal.available ? "+ Choose Options & Add Deal" : "Sold Out"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Empty Search State */}
           {filteredItems.length === 0 ? (

@@ -16,6 +16,7 @@ import {
 } from "@/types";
 import {
   broadcastSyncEvent,
+  getPresetMenu,
   getStoredMenu,
   getStoredOrders,
   getStoredServices,
@@ -24,6 +25,10 @@ import {
   saveStoredServices,
   subscribeToSyncEvents,
 } from "@/lib/sync";
+import {
+  DEFAULT_BISTRO_GEO_PRESET,
+  HEATBOX_GEO_PRESET,
+} from "@/lib/presets";
 import { getAuthState } from "@/lib/auth";
 import {
   getActiveGuestSession,
@@ -123,10 +128,15 @@ export default function Home() {
   useEffect(() => {
     setIsClientLoaded(true);
 
+    let urlPresetOverride: "default" | "heatbox" | null = null;
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const urlToken = params.get("t") || params.get("token");
       const urlTable = params.get("table");
+      const urlPreset = (params.get("preset") || params.get("brand") || "").toLowerCase();
+      if (urlPreset === "heatbox") urlPresetOverride = "heatbox";
+      else if (urlPreset === "default") urlPresetOverride = "default";
+
       const auth = getAuthState();
       setIsStaff(auth.authenticatedRole !== "none");
 
@@ -158,11 +168,20 @@ export default function Home() {
       }
     }
 
-    setMenu(getStoredMenu());
+    let initialGeo = getStoredGeoConfig();
+    if (urlPresetOverride === "heatbox") {
+      initialGeo = { ...initialGeo, ...HEATBOX_GEO_PRESET, activePreset: "heatbox" };
+      saveStoredGeoConfig(initialGeo);
+    } else if (urlPresetOverride === "default") {
+      initialGeo = { ...initialGeo, ...DEFAULT_BISTRO_GEO_PRESET, activePreset: "default" };
+      saveStoredGeoConfig(initialGeo);
+    }
+
+    setGeoConfig(initialGeo);
+    setMenu(getPresetMenu(initialGeo.activePreset || "default"));
     setOrders(getStoredOrders());
     setServiceRequests(getStoredServices());
     setTableSessions(getStoredTableSessions());
-    setGeoConfig(getStoredGeoConfig());
     setLeaderboard(getStoredLeaderboard());
 
     let pollingTimer: NodeJS.Timeout | null = null;
@@ -178,8 +197,11 @@ export default function Home() {
       });
       fetchMenuFromSupabase().then((cloudMenu) => {
         if (cloudMenu && cloudMenu.length > 0) {
-          setMenu(cloudMenu);
           saveStoredMenu(cloudMenu);
+          const currentPreset = urlPresetOverride || getStoredGeoConfig().activePreset || "default";
+          if (currentPreset === "default") {
+            setMenu(cloudMenu);
+          }
         }
       });
       fetchTableTokensFromSupabase().then((cloudTokens) => {
@@ -193,9 +215,12 @@ export default function Home() {
         }
       });
       fetchGeoConfigFromSupabase().then((cloudGeo) => {
-        if (cloudGeo) {
+        if (cloudGeo && !urlPresetOverride) {
           setGeoConfig(cloudGeo);
           saveStoredGeoConfig(cloudGeo);
+          if (cloudGeo.activePreset === "heatbox") {
+            setMenu(getPresetMenu("heatbox"));
+          }
         }
       });
       fetchLeaderboardFromSupabase().then((cloudLb) => {
@@ -232,36 +257,42 @@ export default function Home() {
             });
           }
 
-          const cloudMenu = await fetchMenuFromSupabase();
-          if (cloudMenu && cloudMenu.length > 0) {
-            setMenu((prev) => {
-              const isDiff =
-                prev.length !== cloudMenu.length ||
-                prev.some((p) => {
-                  const cm = cloudMenu.find((m) => m.id === p.id);
-                  return (
-                    !cm ||
-                    cm.price !== p.price ||
-                    cm.available !== p.available ||
-                    cm.name !== p.name ||
-                    cm.description !== p.description ||
-                    cm.tag !== p.tag ||
-                    cm.imageUrl !== p.imageUrl
-                  );
-                });
-              if (isDiff) {
-                saveStoredMenu(cloudMenu);
-                return cloudMenu;
-              }
-              return prev;
-            });
+          const currentPreset = urlPresetOverride || getStoredGeoConfig().activePreset || "default";
+          if (currentPreset === "default") {
+            const cloudMenu = await fetchMenuFromSupabase();
+            if (cloudMenu && cloudMenu.length > 0) {
+              setMenu((prev) => {
+                const isDiff =
+                  prev.length !== cloudMenu.length ||
+                  prev.some((p) => {
+                    const cm = cloudMenu.find((m) => m.id === p.id);
+                    return (
+                      !cm ||
+                      cm.price !== p.price ||
+                      cm.available !== p.available ||
+                      cm.name !== p.name ||
+                      cm.description !== p.description ||
+                      cm.tag !== p.tag ||
+                      cm.imageUrl !== p.imageUrl
+                    );
+                  });
+                if (isDiff) {
+                  saveStoredMenu(cloudMenu);
+                  return cloudMenu;
+                }
+                return prev;
+              });
+            }
           }
 
           const cloudGeo = await fetchGeoConfigFromSupabase();
-          if (cloudGeo) {
+          if (cloudGeo && !urlPresetOverride) {
             setGeoConfig((prev) => {
               if (JSON.stringify(prev) !== JSON.stringify(cloudGeo)) {
                 saveStoredGeoConfig(cloudGeo);
+                if (cloudGeo.activePreset !== prev.activePreset) {
+                  setMenu(getPresetMenu(cloudGeo.activePreset || "default"));
+                }
                 return cloudGeo;
               }
               return prev;
@@ -350,6 +381,7 @@ export default function Home() {
           break;
         case "GEO_CONFIG_UPDATED":
           setGeoConfig(event.payload);
+          setMenu(getPresetMenu(event.payload.activePreset || "default"));
           break;
         case "LEADERBOARD_UPDATED":
           setLeaderboard(event.payload);
@@ -384,8 +416,10 @@ export default function Home() {
           );
           break;
         case "MENU_UPDATED":
-          setMenu(event.payload);
           saveStoredMenu(event.payload);
+          if ((getStoredGeoConfig().activePreset || "default") === "default") {
+            setMenu(event.payload);
+          }
           break;
       }
     });

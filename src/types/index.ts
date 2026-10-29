@@ -1,4 +1,4 @@
-export type MenuCategory = "Starters" | "Mains" | "Desserts" | "Drinks";
+export type MenuCategory = "Deals" | "Starters" | "Mains" | "Desserts" | "Drinks" | (string & {});
 
 export type DietaryTag = "Popular" | "Chef Pick" | "Vegetarian" | "Spicy" | "Gluten-Free" | "New" | "Fresh" | "Signature" | "Sweet" | "Cold" | "Hot";
 
@@ -116,6 +116,7 @@ export type GeoFenceConfig = {
   wifiSsid?: string;
   wifiPassword?: string;
   arcadePrizeText?: string;
+  activePreset?: "default" | "heatbox";
   strictMode: boolean; // if true, block order outside geofence; if false, warn
 };
 

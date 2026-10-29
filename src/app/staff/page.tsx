@@ -13,14 +13,21 @@ import {
 } from "@/types";
 import {
   broadcastSyncEvent,
+  getPresetMenu,
   getStoredMenu,
   getStoredOrders,
   getStoredServices,
+  savePresetMenu,
   saveStoredMenu,
   saveStoredOrders,
   saveStoredServices,
   subscribeToSyncEvents,
 } from "@/lib/sync";
+import {
+  DEFAULT_BISTRO_GEO_PRESET,
+  HEATBOX_GEO_PRESET,
+  HEATBOX_MENU_DATA,
+} from "@/lib/presets";
 import { clearAuthSession, getAuthState } from "@/lib/auth";
 import {
   clearTableFloorSession,
@@ -101,11 +108,12 @@ export default function StaffHubPage() {
       setActiveTab("kitchen");
     }
 
-    setMenu(getStoredMenu());
+    const initialGeo = getStoredGeoConfig();
+    setGeoConfig(initialGeo);
+    setMenu(getPresetMenu(initialGeo.activePreset || "default"));
     setOrders(getStoredOrders());
     setServiceRequests(getStoredServices());
     setTableSessions(getStoredTableSessions());
-    setGeoConfig(getStoredGeoConfig());
 
     let pollingTimer: NodeJS.Timeout | null = null;
     if (isSupabaseConfigured()) {
@@ -126,8 +134,10 @@ export default function StaffHubPage() {
       });
       fetchMenuFromSupabase().then((cloudMenu) => {
         if (cloudMenu && cloudMenu.length > 0) {
-          setMenu(cloudMenu);
           saveStoredMenu(cloudMenu);
+          if ((getStoredGeoConfig().activePreset || "default") === "default") {
+            setMenu(cloudMenu);
+          }
         }
       });
       fetchTableTokensFromSupabase().then((cloudTokens) => {
@@ -144,6 +154,9 @@ export default function StaffHubPage() {
         if (cloudGeo) {
           setGeoConfig(cloudGeo);
           saveStoredGeoConfig(cloudGeo);
+          if (cloudGeo.activePreset === "heatbox") {
+            setMenu(getPresetMenu("heatbox"));
+          }
         }
       });
 
@@ -204,29 +217,31 @@ export default function StaffHubPage() {
             });
           }
 
-          const cloudMenu = await fetchMenuFromSupabase();
-          if (cloudMenu && cloudMenu.length > 0) {
-            setMenu((prev) => {
-              const isDiff =
-                prev.length !== cloudMenu.length ||
-                prev.some((p) => {
-                  const cm = cloudMenu.find((m) => m.id === p.id);
-                  return (
-                    !cm ||
-                    cm.price !== p.price ||
-                    cm.available !== p.available ||
-                    cm.name !== p.name ||
-                    cm.description !== p.description ||
-                    cm.tag !== p.tag ||
-                    cm.imageUrl !== p.imageUrl
-                  );
-                });
-              if (isDiff) {
-                saveStoredMenu(cloudMenu);
-                return cloudMenu;
-              }
-              return prev;
-            });
+          if ((getStoredGeoConfig().activePreset || "default") === "default") {
+            const cloudMenu = await fetchMenuFromSupabase();
+            if (cloudMenu && cloudMenu.length > 0) {
+              setMenu((prev) => {
+                const isDiff =
+                  prev.length !== cloudMenu.length ||
+                  prev.some((p) => {
+                    const cm = cloudMenu.find((m) => m.id === p.id);
+                    return (
+                      !cm ||
+                      cm.price !== p.price ||
+                      cm.available !== p.available ||
+                      cm.name !== p.name ||
+                      cm.description !== p.description ||
+                      cm.tag !== p.tag ||
+                      cm.imageUrl !== p.imageUrl
+                    );
+                  });
+                if (isDiff) {
+                  saveStoredMenu(cloudMenu);
+                  return cloudMenu;
+                }
+                return prev;
+              });
+            }
           }
         } catch {
           // Ignore transient network errors
@@ -383,8 +398,10 @@ export default function StaffHubPage() {
           );
           break;
         case "MENU_UPDATED":
-          setMenu(event.payload);
           saveStoredMenu(event.payload);
+          if ((getStoredGeoConfig().activePreset || "default") === "default") {
+            setMenu(event.payload);
+          }
           break;
       }
     });
@@ -397,6 +414,13 @@ export default function StaffHubPage() {
   }, []);
 
   const handleUpdateMenu = (newMenu: MenuItem[]) => {
+    if (geoConfig.activePreset === "heatbox") {
+      setMenu(newMenu);
+      savePresetMenu(newMenu, "heatbox");
+      broadcastSyncEvent({ type: "MENU_UPDATED", payload: newMenu });
+      return;
+    }
+
     const prevMap = new Map(menu.map((m) => [m.id, m]));
     const nextMap = new Map(newMenu.map((m) => [m.id, m]));
 
@@ -426,6 +450,39 @@ export default function StaffHubPage() {
     setMenu(newMenu);
     saveStoredMenu(newMenu);
     broadcastSyncEvent({ type: "MENU_UPDATED", payload: newMenu });
+  };
+
+  const handleSelectPreset = async (
+    preset: "default" | "heatbox",
+    resetPresetMenu?: boolean
+  ) => {
+    const patch =
+      preset === "heatbox" ? HEATBOX_GEO_PRESET : DEFAULT_BISTRO_GEO_PRESET;
+    const nextGeo: GeoFenceConfig = {
+      ...geoConfig,
+      ...patch,
+      activePreset: preset,
+    };
+    setGeoConfig(nextGeo);
+    saveStoredGeoConfig(nextGeo);
+    broadcastSyncEvent({ type: "GEO_CONFIG_UPDATED", payload: nextGeo });
+    syncGeoConfigToSupabase(nextGeo);
+
+    if (preset === "heatbox") {
+      if (resetPresetMenu) {
+        savePresetMenu(HEATBOX_MENU_DATA, "heatbox");
+      }
+      const hbMenu = resetPresetMenu
+        ? HEATBOX_MENU_DATA
+        : getPresetMenu("heatbox");
+      setMenu(hbMenu);
+      broadcastSyncEvent({ type: "MENU_UPDATED", payload: hbMenu });
+    } else {
+      const defMenu = (await fetchMenuFromSupabase()) || getStoredMenu();
+      setMenu(defMenu);
+      saveStoredMenu(defMenu);
+      broadcastSyncEvent({ type: "MENU_UPDATED", payload: defMenu });
+    }
   };
 
   const handleUpdateGeoConfig = (newConfig: GeoFenceConfig) => {
@@ -767,6 +824,7 @@ export default function StaffHubPage() {
               geoConfig={geoConfig}
               onUpdateMenu={handleUpdateMenu}
               onUpdateGeoConfig={handleUpdateGeoConfig}
+              onSelectPreset={handleSelectPreset}
               onLockSession={handleLockSession}
             />
           )}
