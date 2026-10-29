@@ -30,13 +30,14 @@ export function getAuthState(): AuthState {
 
 export async function verifyPinServer(
   pin: string,
-  requestedRole: "kitchen" | "owner"
+  requestedRole: "kitchen" | "owner",
+  restaurant?: string
 ): Promise<{ success: boolean; role?: "kitchen" | "owner"; error?: string }> {
   try {
     const res = await fetch("/api/auth/verify-pin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin: pin.trim(), requestedRole }),
+      body: JSON.stringify({ pin: pin.trim(), requestedRole, restaurant }),
     });
     const data = await res.json();
     if (res.ok && data.success) {

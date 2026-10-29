@@ -15,8 +15,39 @@ export type ModifierGroup = {
   options: ModifierOption[];
 };
 
+export type RestaurantStatus = "active" | "trial" | "suspended";
+
+export type Restaurant = {
+  id: string;
+  slug: string;
+  accessKey: string;
+  name: string;
+  tagline?: string;
+  address?: string;
+  city?: string;
+  phone?: string;
+  currency: CurrencyCode;
+  currencySymbol?: string;
+  status: RestaurantStatus;
+  staffPin: string;
+  ownerPin: string;
+  securityMode: AntiPrankMode;
+  dailyDineInCode: string;
+  wifiSsid?: string;
+  wifiPassword?: string;
+  arcadePrizeText?: string;
+  serviceFeePercent?: number;
+  tableCount: number;
+  latitude?: number;
+  longitude?: number;
+  radiusMeters?: number;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
 export type MenuItem = {
   id: number;
+  restaurantId?: string;
   category: MenuCategory;
   name: string;
   description: string;
@@ -43,6 +74,7 @@ export type OrderStatus = "New" | "Preparing" | "Ready" | "Served" | "Archived" 
 
 export type OrderCard = {
   id: string;
+  restaurantId?: string;
   orderNumber: number;
   table: number;
   items: OrderItem[];
@@ -67,6 +99,7 @@ export type ServiceType =
 
 export type ServiceRequest = {
   id: string;
+  restaurantId?: string;
   table: number;
   type: ServiceType;
   status: "Pending" | "Resolved";

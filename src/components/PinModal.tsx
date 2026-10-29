@@ -9,9 +9,10 @@ interface PinModalProps {
   isOpen: boolean;
   onSuccess: (role: "kitchen" | "owner") => void;
   onClose: () => void;
+  restaurantSlug?: string;
 }
 
-export default function PinModal({ requestedRole, isOpen, onSuccess, onClose }: PinModalProps) {
+export default function PinModal({ requestedRole, isOpen, onSuccess, onClose, restaurantSlug }: PinModalProps) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isShaking, setIsShaking] = useState(false);
@@ -20,7 +21,7 @@ export default function PinModal({ requestedRole, isOpen, onSuccess, onClose }: 
   const validatePin = useCallback(
     async (codeToTest: string) => {
       setIsVerifying(true);
-      const res = await verifyPinServer(codeToTest, requestedRole);
+      const res = await verifyPinServer(codeToTest, requestedRole, restaurantSlug);
       setIsVerifying(false);
 
       if (res.success) {

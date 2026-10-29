@@ -6,20 +6,21 @@ const STORAGE_LEADERBOARD_KEY = "tabletapp_leaderboard_v1";
 // Default configuration (can be customized live by the restaurant owner in Owner Suite)
 export const DEFAULT_GEO_CONFIG: GeoFenceConfig = {
   enabled: true,
-  latitude: 34.0086,
-  longitude: 71.5484,
-  radiusMeters: 150, // 150m perimeter covers restaurant floor, patio, and parking
-  restaurantName: "Sunshine Bistro",
-  tagline: "Direct Kitchen Ordering",
+  latitude: 34.0151,
+  longitude: 71.5249,
+  radiusMeters: 150,
+  restaurantName: "Heat Box Pizza",
+  tagline: "Sher Khan Shaheed Road • Peshawar Cantt",
   currency: "PKR",
   serviceFeeEnabled: false,
   serviceFeeAmount: 0,
   securityMode: "hybrid_gps",
   dailyDineInCode: "42",
-  wifiSsid: "Sunshine_Bistro_5G",
-  wifiPassword: "bistro2026",
-  arcadePrizeText: "Hold the #1 spot on Today's Leaderboard to win a Free Signature Dessert!",
-  strictMode: true,
+  wifiSsid: "HeatBox_Peshawar_5G",
+  wifiPassword: "heatbox123",
+  arcadePrizeText: "Hold the #1 spot on Today's Leaderboard to win a Free Molten Lava Cake!",
+  strictMode: false,
+  activePreset: "heatbox",
 };
 
 export const INITIAL_LEADERBOARD: LeaderboardEntry[] = [

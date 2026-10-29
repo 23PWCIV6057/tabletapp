@@ -47,6 +47,7 @@ import {
   saveStoredGeoConfig,
   saveStoredLeaderboard,
 } from "@/lib/geo";
+import { findRestaurantBySlugOrKey, restaurantToGeoConfig } from "@/lib/restaurants";
 import {
   fetchGeoConfigFromSupabase,
   fetchLeaderboardFromSupabase,
@@ -96,8 +97,11 @@ function mergeCloudOrdersWithLocalMeta(
   });
 }
 
-export default function Home() {
+export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {}) {
   const [isStaff, setIsStaff] = useState(false);
+
+  const currentRestaurant = restaurantSlug ? findRestaurantBySlugOrKey(restaurantSlug) : null;
+  const isSuspended = currentRestaurant?.status === "suspended";
 
   // Core Customer Synced State
   const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -168,7 +172,8 @@ export default function Home() {
       }
     }
 
-    let initialGeo = getStoredGeoConfig();
+    const matched = restaurantSlug ? findRestaurantBySlugOrKey(restaurantSlug) : null;
+    let initialGeo = matched ? restaurantToGeoConfig(matched) : getStoredGeoConfig();
     if (urlPresetOverride === "heatbox") {
       initialGeo = { ...initialGeo, ...HEATBOX_GEO_PRESET, activePreset: "heatbox" };
       saveStoredGeoConfig(initialGeo);
@@ -178,7 +183,11 @@ export default function Home() {
     }
 
     setGeoConfig(initialGeo);
-    setMenu(getPresetMenu(initialGeo.activePreset || "default"));
+    if (matched?.slug === "heatbox" || initialGeo.activePreset === "heatbox") {
+      setMenu(getPresetMenu("heatbox"));
+    } else {
+      setMenu(getPresetMenu(initialGeo.activePreset || "heatbox"));
+    }
     setOrders(getStoredOrders());
     setServiceRequests(getStoredServices());
     setTableSessions(getStoredTableSessions());
@@ -621,6 +630,28 @@ export default function Home() {
   const wifiQrString = `WIFI:T:WPA;S:${wifiSsid};P:${wifiPassword};;`;
   const topChampions = [...leaderboard].sort((a, b) => b.score - a.score).slice(0, 3);
 
+  if (isClientLoaded && isSuspended) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-white">
+        <div className="max-w-md w-full rounded-3xl border border-rose-500/30 bg-slate-900/90 p-8 text-center shadow-2xl backdrop-blur-md">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-400">
+            <LockIcon size={28} />
+          </div>
+          <h2 className="mt-4 text-xl font-black text-white">{currentRestaurant?.name || "Restaurant"} Paused</h2>
+          <p className="mt-2 text-xs leading-relaxed text-slate-400">
+            This dining location is currently suspended by the platform administrator. Please speak with restaurant staff or try again later.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-slate-800 px-6 py-2.5 text-xs font-bold text-white hover:bg-slate-700 transition"
+          >
+            TableTapp Home
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fffcf7,_#f8f3eb_40%,_#efe7dc_100%)] px-4 py-5 pb-28 text-slate-900 sm:px-6 sm:py-6 lg:px-10 lg:pb-10">
       <div className="mx-auto max-w-7xl">
@@ -914,7 +945,7 @@ export default function Home() {
               </p>
               <div className="mt-2 flex items-center justify-center">
                 <Link
-                  href="/staff"
+                  href={restaurantSlug ? `/r/${restaurantSlug}/staff` : "/staff"}
                   className="inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
                 >
                   <LockIcon size={12} />

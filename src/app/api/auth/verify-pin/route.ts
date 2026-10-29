@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { findRestaurantBySlugOrKey, INITIAL_RESTAURANTS } from "@/lib/restaurants";
 
-const STAFF_PIN = process.env.STAFF_PIN || "1234";
-const OWNER_PIN = process.env.OWNER_PIN || "8888";
+const DEFAULT_STAFF_PIN = process.env.STAFF_PIN || "1234";
+const DEFAULT_OWNER_PIN = process.env.OWNER_PIN || "8888";
 const TOKEN_SECRET = process.env.AUTH_SECRET || "tabletapp_default_hmac_secret_2026";
 
 function safeCompare(a: string, b: string): boolean {
@@ -10,8 +11,8 @@ function safeCompare(a: string, b: string): boolean {
   return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-function signSessionToken(role: "kitchen" | "owner", unlockedAt: number): string {
-  const payload = `${role}:${unlockedAt}`;
+function signSessionToken(role: "kitchen" | "owner", restaurantId: string, unlockedAt: number): string {
+  const payload = `${restaurantId}:${role}:${unlockedAt}`;
   const sig = crypto.createHmac("sha256", TOKEN_SECRET).update(payload).digest("hex");
   return `${payload}:${sig}`;
 }
@@ -21,6 +22,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const pin = typeof body?.pin === "string" ? body.pin.trim() : "";
     const requestedRole = body?.requestedRole === "owner" ? "owner" : "kitchen";
+    const restaurantIdentifier = typeof body?.restaurant === "string" ? body.restaurant.trim() : "";
 
     if (!/^[0-9]{4,8}$/.test(pin)) {
       return NextResponse.json(
@@ -29,8 +31,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const isOwnerMatch = safeCompare(pin, OWNER_PIN);
-    const isStaffMatch = safeCompare(pin, STAFF_PIN);
+    // Resolve tenant specific PINs
+    const matchedRestaurant = restaurantIdentifier ? findRestaurantBySlugOrKey(restaurantIdentifier) : INITIAL_RESTAURANTS[0];
+    const targetOwnerPin = matchedRestaurant?.ownerPin || DEFAULT_OWNER_PIN;
+    const targetStaffPin = matchedRestaurant?.staffPin || DEFAULT_STAFF_PIN;
+    const tenantId = matchedRestaurant?.id || "global";
+
+    const isOwnerMatch = safeCompare(pin, targetOwnerPin);
+    const isStaffMatch = safeCompare(pin, targetStaffPin);
 
     if (requestedRole === "owner") {
       if (isOwnerMatch) {
@@ -38,8 +46,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           success: true,
           role: "owner",
+          restaurantId: tenantId,
           unlockedAt,
-          sessionToken: signSessionToken("owner", unlockedAt),
+          sessionToken: signSessionToken("owner", tenantId, unlockedAt),
         });
       }
       return NextResponse.json(
@@ -55,8 +64,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         role: resolvedRole,
+        restaurantId: tenantId,
         unlockedAt,
-        sessionToken: signSessionToken(resolvedRole, unlockedAt),
+        sessionToken: signSessionToken(resolvedRole, tenantId, unlockedAt),
       });
     }
 

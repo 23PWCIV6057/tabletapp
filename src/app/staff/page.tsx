@@ -37,6 +37,7 @@ import {
   updateTableStatus,
 } from "@/lib/tables";
 import { getStoredGeoConfig, saveStoredGeoConfig } from "@/lib/geo";
+import { findRestaurantBySlugOrKey, restaurantToGeoConfig } from "@/lib/restaurants";
 import {
   fetchGeoConfigFromSupabase,
   fetchMenuFromSupabase,
@@ -84,11 +85,14 @@ function mergeCloudOrdersWithLocalMeta(
   });
 }
 
-export default function StaffHubPage() {
+export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: string } = {}) {
   const [activeTab, setActiveTab] = useState<"kitchen" | "owner">("kitchen");
   const [pinModalRole, setPinModalRole] = useState<"kitchen" | "owner" | null>(null);
   const [authenticatedRole, setAuthenticatedRole] = useState<"none" | "kitchen" | "owner">("none");
   const [isClientLoaded, setIsClientLoaded] = useState(false);
+
+  const currentRestaurant = restaurantSlug ? findRestaurantBySlugOrKey(restaurantSlug) : null;
+  const isSuspended = currentRestaurant?.status === "suspended";
 
   // Synced Staff State
   const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -108,9 +112,14 @@ export default function StaffHubPage() {
       setActiveTab("kitchen");
     }
 
-    const initialGeo = getStoredGeoConfig();
+    const matched = restaurantSlug ? findRestaurantBySlugOrKey(restaurantSlug) : null;
+    const initialGeo = matched ? restaurantToGeoConfig(matched) : getStoredGeoConfig();
     setGeoConfig(initialGeo);
-    setMenu(getPresetMenu(initialGeo.activePreset || "default"));
+    if (matched?.slug === "heatbox" || initialGeo.activePreset === "heatbox") {
+      setMenu(getPresetMenu("heatbox"));
+    } else {
+      setMenu(getPresetMenu(initialGeo.activePreset || "heatbox"));
+    }
     setOrders(getStoredOrders());
     setServiceRequests(getStoredServices());
     setTableSessions(getStoredTableSessions());
@@ -630,6 +639,28 @@ export default function StaffHubPage() {
     );
   }
 
+  if (isClientLoaded && isSuspended) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-white">
+        <div className="max-w-md w-full rounded-3xl border border-rose-500/30 bg-slate-900/90 p-8 text-center shadow-2xl backdrop-blur-md">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-400">
+            <LockIcon size={28} />
+          </div>
+          <h2 className="mt-4 text-xl font-black text-white">{currentRestaurant?.name || "Restaurant"} Hub Suspended</h2>
+          <p className="mt-2 text-xs leading-relaxed text-slate-400">
+            Staff and kitchen operations for this restaurant branch are currently paused by the administrator.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-slate-800 px-6 py-2.5 text-xs font-bold text-white hover:bg-slate-700 transition"
+          >
+            Return to TableTapp
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   // Unauthenticated Gatekeeper Screen at /staff
   if (authenticatedRole === "none") {
     return (
@@ -643,7 +674,7 @@ export default function StaffHubPage() {
             </span>
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-amber-400">
-                Sunshine Bistro • Internal Operations
+                {geoConfig.restaurantName || "TableTapp"} • Internal Operations
               </p>
               <h1 className="font-display text-2xl font-bold text-white">
                 Staff &amp; Management Hub
@@ -706,7 +737,7 @@ export default function StaffHubPage() {
 
           <div className="mt-8 flex items-center justify-between border-t border-slate-800 pt-5 text-xs text-slate-400">
             <Link
-              href="/"
+              href={restaurantSlug ? `/r/${restaurantSlug}` : "/"}
               className="inline-flex min-h-10 items-center gap-1.5 font-semibold text-slate-300 hover:text-white transition"
             >
               <UtensilsIcon size={14} />
@@ -719,6 +750,7 @@ export default function StaffHubPage() {
         <PinModal
           isOpen={pinModalRole !== null}
           requestedRole={pinModalRole || "kitchen"}
+          restaurantSlug={restaurantSlug}
           onSuccess={handlePinSuccess}
           onClose={() => setPinModalRole(null)}
         />
@@ -783,7 +815,7 @@ export default function StaffHubPage() {
             </button>
 
             <Link
-              href="/"
+              href={restaurantSlug ? `/r/${restaurantSlug}` : "/"}
               className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
             >
               <UtensilsIcon size={14} />
@@ -834,6 +866,7 @@ export default function StaffHubPage() {
       <PinModal
         isOpen={pinModalRole !== null}
         requestedRole={pinModalRole || "owner"}
+        restaurantSlug={restaurantSlug}
         onSuccess={handlePinSuccess}
         onClose={() => setPinModalRole(null)}
       />
