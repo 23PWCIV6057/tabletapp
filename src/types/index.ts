@@ -89,7 +89,17 @@ export type TableSession = {
 export type AntiPrankMode = "dine_in_code" | "hybrid_gps" | "kds_only";
 export type CurrencyCode = "PKR" | "USD";
 
-// Restaurant Branding, Currency & Anti-Tamper Configuration
+// Café Arcade Live Leaderboard Entry
+export type LeaderboardEntry = {
+  id: string;
+  playerName: string;
+  tableNumber?: number | null;
+  game: "reflex" | "bot_streak";
+  score: number;
+  createdAt: number;
+};
+
+// Restaurant Branding, Currency, Wi-Fi, Arcade & Anti-Tamper Configuration
 export type GeoFenceConfig = {
   enabled: boolean;
   latitude: number;
@@ -102,6 +112,9 @@ export type GeoFenceConfig = {
   serviceFeeAmount?: number;
   securityMode?: AntiPrankMode;
   dailyDineInCode?: string;
+  wifiSsid?: string;
+  wifiPassword?: string;
+  arcadePrizeText?: string;
   strictMode: boolean; // if true, block order outside geofence; if false, warn
 };
 
@@ -116,4 +129,5 @@ export type SyncEvent =
   | { type: "TABLE_STATUS_CHANGED"; payload: { tableNumber: number; status: TableOccupancyStatus; seatedAt?: number } }
   | { type: "TABLE_CLEARED"; payload: { tableNumber: number } }
   | { type: "GEO_CONFIG_UPDATED"; payload: GeoFenceConfig }
-  | { type: "TABLE_TOKEN_ROTATED"; payload: { tableNumber: number; token: string } };
+  | { type: "TABLE_TOKEN_ROTATED"; payload: { tableNumber: number; token: string } }
+  | { type: "LEADERBOARD_UPDATED"; payload: LeaderboardEntry[] };

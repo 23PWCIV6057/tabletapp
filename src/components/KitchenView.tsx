@@ -9,7 +9,17 @@ import {
   TableOccupancyStatus,
   TableSession,
 } from "@/types";
-import { formatPrice } from "@/lib/geo";
+import {
+  DEFAULT_GEO_CONFIG,
+  formatPrice,
+} from "@/lib/geo";
+import {
+  connectThermalPrinter,
+  disconnectThermalPrinter,
+  isThermalPrinterConnected,
+  isWebSerialSupported,
+  printOrderViaEscPos,
+} from "@/lib/printer";
 import {
   isAudioMuted,
   playOrderChime,
@@ -26,6 +36,7 @@ import {
   ClockIcon,
   LockIcon,
   MapPinIcon,
+  PrinterIcon,
   SparklesIcon,
   UtensilsIcon,
   XIcon,
@@ -65,6 +76,62 @@ export default function KitchenView({
   const [audioEnabled, setAudioEnabled] = useState(() => !isAudioMuted());
   const [transferringOrderId, setTransferringOrderId] = useState<string | null>(null);
   const [selectedFloorTable, setSelectedFloorTable] = useState<number | null>(null);
+
+  // Thermal Receipt Printer States
+  const [printerConnected, setPrinterConnected] = useState(() => isThermalPrinterConnected());
+  const [autoPrintOnAccept, setAutoPrintOnAccept] = useState(true);
+  const [printingSlip, setPrintingSlip] = useState<{
+    order: OrderCard;
+    mode: "kot" | "bill";
+  } | null>(null);
+  const [printerToast, setPrinterToast] = useState<string | null>(null);
+
+  const handleConnectPrinter = async () => {
+    if (printerConnected) {
+      await disconnectThermalPrinter();
+      setPrinterConnected(false);
+      setPrinterToast("Direct USB Thermal Printer disconnected. Using standard 80mm print dialog.");
+      setTimeout(() => setPrinterToast(null), 3500);
+      return;
+    }
+
+    if (!isWebSerialSupported()) {
+      setPrinterToast(
+        "Direct USB Serial requires Chrome/Edge on Desktop. Standard 1-click 80mm receipt printing is active!"
+      );
+      setTimeout(() => setPrinterToast(null), 4000);
+      return;
+    }
+
+    const ok = await connectThermalPrinter();
+    setPrinterConnected(ok);
+    if (ok) {
+      setPrinterToast("Thermal Receipt Printer connected! 1-click instant ESC/POS printing enabled.");
+    } else {
+      setPrinterToast("No USB serial printer selected. Standard 80mm receipt printing remains active.");
+    }
+    setTimeout(() => setPrinterToast(null), 4000);
+  };
+
+  const handlePrintTicket = async (order: OrderCard, mode: "kot" | "bill") => {
+    const cfg = geoConfig || DEFAULT_GEO_CONFIG;
+    if (isThermalPrinterConnected()) {
+      const sent = await printOrderViaEscPos(order, cfg, mode);
+      if (sent) {
+        setPrinterToast(
+          `Printed ${mode === "kot" ? "Kitchen Ticket (KOT)" : "Customer Bill"} for Table ${order.table} (#${order.orderNumber})`
+        );
+        setTimeout(() => setPrinterToast(null), 3000);
+        return;
+      }
+    }
+
+    // Universal 80mm Thermal Slip Fallback via OS Print
+    setPrintingSlip({ order, mode });
+    setTimeout(() => {
+      window.print();
+    }, 80);
+  };
 
   // Update timer every 10 seconds to keep elapsed minutes fresh
   useEffect(() => {
@@ -124,6 +191,35 @@ export default function KitchenView({
             <span className="rounded bg-amber-500 px-1.5 py-0.5 text-slate-950">{dailyCode}</span>
           </span>
 
+          {/* Direct Thermal Receipt Printer Connection */}
+          <button
+            type="button"
+            onClick={handleConnectPrinter}
+            className={`inline-flex min-h-11 items-center gap-2 rounded-full px-3.5 py-2 text-xs font-bold transition ${
+              printerConnected
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                : "bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700"
+            }`}
+            title="Pair USB/Serial 80mm ESC/POS Thermal Receipt Printer"
+          >
+            <PrinterIcon size={15} />
+            <span>{printerConnected ? "Printer Ready (USB)" : "Connect Printer"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAutoPrintOnAccept((v) => !v)}
+            aria-pressed={autoPrintOnAccept}
+            className={`inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-bold transition ${
+              autoPrintOnAccept
+                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                : "bg-slate-800 text-slate-400 border border-slate-700"
+            }`}
+            title="Automatically print Kitchen Order Ticket when clicking Start Preparing"
+          >
+            <span>Auto-KOT: {autoPrintOnAccept ? "ON" : "OFF"}</span>
+          </button>
+
           {/* Audio Chime Controls */}
           <button
             type="button"
@@ -158,6 +254,25 @@ export default function KitchenView({
           </button>
         </div>
       </header>
+
+      {printerToast && (
+        <div
+          role="status"
+          className="flex items-center justify-between rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-950 shadow-sm"
+        >
+          <div className="flex items-center gap-2">
+            <PrinterIcon size={16} className="text-emerald-700" />
+            <span>{printerToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPrinterToast(null)}
+            className="rounded-lg px-2 py-1 text-emerald-800 hover:bg-emerald-100"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Table Floor Lifecycle Strip (Tables 1 - 16) */}
       <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -569,16 +684,25 @@ export default function KitchenView({
                     </div>
                   </div>
 
-                  {/* Action Bar (Bumping tickets - 44px min touch targets) */}
-                  <div className="mt-5 border-t border-slate-100 pt-3.5">
+                  {/* Action Bar (Bumping tickets + 1-Click Thermal Receipt Printing) */}
+                  <div className="mt-5 border-t border-slate-100 pt-3.5 space-y-2.5">
                     {order.status === "New" && (
                       <button
                         type="button"
-                        onClick={() => onUpdateOrderStatus(order.id, "Preparing")}
+                        onClick={() => {
+                          onUpdateOrderStatus(order.id, "Preparing");
+                          if (autoPrintOnAccept) {
+                            handlePrintTicket(order, "kot");
+                          }
+                        }}
                         className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-amber-500 py-2.5 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-400 active:scale-95"
                       >
                         <ChefHatIcon size={16} />
-                        <span>Start Preparing</span>
+                        <span>
+                          {autoPrintOnAccept
+                            ? "Accept & Print Kitchen Ticket"
+                            : "Start Preparing"}
+                        </span>
                       </button>
                     )}
 
@@ -624,6 +748,29 @@ export default function KitchenView({
                         )}
                       </div>
                     )}
+
+                    {/* 1-Click Thermal Receipt & KOT Buttons */}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handlePrintTicket(order, "kot")}
+                        className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition"
+                        title="Print Kitchen Order Ticket (KOT)"
+                      >
+                        <PrinterIcon size={13} />
+                        <span>Print KOT</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handlePrintTicket(order, "bill")}
+                        className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950 hover:bg-amber-100 transition"
+                        title="Print Customer Table Bill Receipt"
+                      >
+                        <PrinterIcon size={13} />
+                        <span>Print Bill ({formatPrice(order.total, currency)})</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -691,6 +838,89 @@ export default function KitchenView({
           )}
         </div>
       </div>
+
+      {/* 80mm Thermal Receipt Slip (Hidden on screen, isolated during @media print) */}
+      {printingSlip && (
+        <div
+          id="printable-receipt-slip"
+          className="hidden print:block text-black font-mono text-xs leading-snug"
+        >
+          <div className="text-center border-b border-dashed border-black pb-2 mb-2">
+            <p className="text-base font-black uppercase">
+              {geoConfig?.restaurantName || "Sunshine Bistro"}
+            </p>
+            <p className="text-[11px]">
+              {printingSlip.mode === "kot"
+                ? "*** KITCHEN ORDER TICKET (KOT) ***"
+                : "*** CUSTOMER TABLE BILL ***"}
+            </p>
+          </div>
+
+          <div className="flex justify-between font-bold text-xs border-b border-dashed border-black pb-2 mb-2">
+            <span>TABLE #{printingSlip.order.table}</span>
+            <span>ORDER #{printingSlip.order.orderNumber}</span>
+          </div>
+
+          <p className="text-[11px] mb-2">
+            Date:{" "}
+            {new Date(printingSlip.order.createdAt).toLocaleString([], {
+              month: "short",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+
+          <div className="border-t border-b border-dashed border-black py-2 space-y-1.5">
+            {printingSlip.order.items.map((item, idx) => (
+              <div key={idx}>
+                <div className="flex justify-between font-bold">
+                  <span>
+                    {item.quantity}x {item.name}
+                  </span>
+                  {printingSlip.mode === "bill" && (
+                    <span>{formatPrice(item.totalPrice, currency)}</span>
+                  )}
+                </div>
+                {item.selectedModifiers.length > 0 && (
+                  <p className="pl-3 text-[11px]">
+                    + {item.selectedModifiers.map((m) => m.optionName).join(", ")}
+                  </p>
+                )}
+                {item.specialInstructions && (
+                  <p className="pl-3 text-[11px] font-bold">
+                    NOTE: {item.specialInstructions}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {printingSlip.mode === "bill" && (
+            <div className="py-2 border-b border-dashed border-black space-y-1">
+              <div className="flex justify-between">
+                <span>Subtotal:</span>
+                <span>{formatPrice(printingSlip.order.subtotal, currency)}</span>
+              </div>
+              {printingSlip.order.serviceFee > 0 && (
+                <div className="flex justify-between">
+                  <span>Service Fee:</span>
+                  <span>{formatPrice(printingSlip.order.serviceFee, currency)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm font-black pt-1">
+                <span>TOTAL DUE:</span>
+                <span>{formatPrice(printingSlip.order.total, currency)}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="pt-3 text-center text-[11px]">
+            <p>Thank you for dining with us!</p>
+            <p>Powered by TableTapp</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

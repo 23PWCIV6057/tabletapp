@@ -1,4 +1,4 @@
-import { GeoFenceConfig, MenuCategory, MenuItem, ModifierGroup, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
+import { GeoFenceConfig, LeaderboardEntry, MenuCategory, MenuItem, ModifierGroup, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
 import { DEFAULT_GEO_CONFIG } from "./geo";
 import { initialMenuData } from "./sync";
 
@@ -199,6 +199,42 @@ export async function fetchGeoConfigFromSupabase(): Promise<GeoFenceConfig | nul
     if (typeof rawName === "string" && rawName.trim().startsWith("{")) {
       const parsed = JSON.parse(rawName);
       return { ...DEFAULT_GEO_CONFIG, ...parsed };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// shortcut: stores live arcade leaderboard JSON in dining_tables(table_number=2).name so zero SQL migration is needed
+export async function syncLeaderboardToSupabase(entries: LeaderboardEntry[]): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const trimmed = entries.slice(0, 20);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.2`, {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify({ name: JSON.stringify(trimmed) }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchLeaderboardFromSupabase(): Promise<LeaderboardEntry[] | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.2&select=name`, {
+      headers: getHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rawName = data?.[0]?.name;
+    if (typeof rawName === "string" && rawName.trim().startsWith("[")) {
+      const parsed = JSON.parse(rawName);
+      return Array.isArray(parsed) ? parsed : null;
     }
     return null;
   } catch {

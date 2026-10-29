@@ -1,6 +1,7 @@
-import { CurrencyCode, GeoFenceConfig } from "@/types";
+import { CurrencyCode, GeoFenceConfig, LeaderboardEntry } from "@/types";
 
 const STORAGE_GEO_KEY = "tabletapp_geo_config_v1";
+const STORAGE_LEADERBOARD_KEY = "tabletapp_leaderboard_v1";
 
 // Default configuration (can be customized live by the restaurant owner in Owner Suite)
 export const DEFAULT_GEO_CONFIG: GeoFenceConfig = {
@@ -15,8 +16,62 @@ export const DEFAULT_GEO_CONFIG: GeoFenceConfig = {
   serviceFeeAmount: 0,
   securityMode: "hybrid_gps",
   dailyDineInCode: "42",
+  wifiSsid: "Sunshine_Bistro_5G",
+  wifiPassword: "bistro2026",
+  arcadePrizeText: "Hold the #1 spot on Today's Leaderboard to win a Free Signature Dessert!",
   strictMode: true,
 };
+
+export const INITIAL_LEADERBOARD: LeaderboardEntry[] = [
+  {
+    id: "lb_1",
+    playerName: "Hamza K.",
+    tableNumber: 3,
+    game: "reflex",
+    score: 340,
+    createdAt: Date.now() - 45 * 60 * 1000,
+  },
+  {
+    id: "lb_2",
+    playerName: "Ayesha M.",
+    tableNumber: 7,
+    game: "reflex",
+    score: 290,
+    createdAt: Date.now() - 90 * 60 * 1000,
+  },
+  {
+    id: "lb_3",
+    playerName: "Zainab & Ali",
+    tableNumber: 5,
+    game: "bot_streak",
+    score: 4,
+    createdAt: Date.now() - 120 * 60 * 1000,
+  },
+];
+
+export function getStoredLeaderboard(): LeaderboardEntry[] {
+  if (typeof window === "undefined") return INITIAL_LEADERBOARD;
+  try {
+    const raw = localStorage.getItem(STORAGE_LEADERBOARD_KEY);
+    if (!raw) {
+      localStorage.setItem(STORAGE_LEADERBOARD_KEY, JSON.stringify(INITIAL_LEADERBOARD));
+      return INITIAL_LEADERBOARD;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : INITIAL_LEADERBOARD;
+  } catch {
+    return INITIAL_LEADERBOARD;
+  }
+}
+
+export function saveStoredLeaderboard(entries: LeaderboardEntry[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_LEADERBOARD_KEY, JSON.stringify(entries));
+  } catch {
+    // Ignore storage error
+  }
+}
 
 export function formatPrice(amount: number, currency: CurrencyCode = "PKR"): string {
   const safe = Number(amount) || 0;

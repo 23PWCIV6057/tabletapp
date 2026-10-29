@@ -800,6 +800,54 @@ export default function OwnerView({
                   </div>
                 </div>
               </div>
+
+              {/* Guest Wi-Fi & Café Arcade Leaderboard Config */}
+              <div className="border-t border-slate-200/80 pt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="wifi-ssid-input" className="block text-xs font-bold text-slate-700">
+                    Free Guest Wi-Fi Network Name (SSID)
+                  </label>
+                  <input
+                    id="wifi-ssid-input"
+                    type="text"
+                    value={geoForm.wifiSsid ?? "Sunshine_Bistro_5G"}
+                    onChange={(e) => setGeoForm({ ...geoForm, wifiSsid: e.target.value })}
+                    placeholder="e.g. Sunshine_Bistro_5G"
+                    className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="wifi-pass-input" className="block text-xs font-bold text-slate-700">
+                    Guest Wi-Fi Password
+                  </label>
+                  <input
+                    id="wifi-pass-input"
+                    type="text"
+                    value={geoForm.wifiPassword ?? "bistro2026"}
+                    onChange={(e) => setGeoForm({ ...geoForm, wifiPassword: e.target.value })}
+                    placeholder="e.g. bistro2026"
+                    className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="arcade-prize-input" className="block text-xs font-bold text-slate-700">
+                  Café Arcade Leaderboard Prize Banner
+                </label>
+                <input
+                  id="arcade-prize-input"
+                  type="text"
+                  value={
+                    geoForm.arcadePrizeText ??
+                    "Hold the #1 spot on Today's Leaderboard to win a Free Signature Dessert!"
+                  }
+                  onChange={(e) => setGeoForm({ ...geoForm, arcadePrizeText: e.target.value })}
+                  placeholder="e.g. Beat #1 score to win a free Brownie!"
+                  className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-900 focus:border-amber-500"
+                />
+              </div>
             </div>
 
             {/* Section B: 3-Mode Anti-Prank Security System */}

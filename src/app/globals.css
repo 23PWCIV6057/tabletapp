@@ -85,13 +85,15 @@ a:focus-visible {
   }
 }
 
-/* Print stylesheet: isolate physical QR Table Stand card when printing */
+/* Print stylesheet: isolate physical QR Table Stand card OR 80mm Thermal Receipt Slip when printing */
 @media print {
   body * {
     visibility: hidden;
   }
   #printable-qr-stand,
-  #printable-qr-stand * {
+  #printable-qr-stand *,
+  #printable-receipt-slip,
+  #printable-receipt-slip * {
     visibility: visible;
   }
   #printable-qr-stand {
@@ -103,5 +105,18 @@ a:focus-visible {
     height: fit-content;
     box-shadow: none !important;
     border: 2px solid #0f172a !important;
+  }
+  #printable-receipt-slip {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 76mm;
+    max-width: 76mm;
+    padding: 4mm;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: var(--font-mono), ui-monospace, monospace !important;
+    box-shadow: none !important;
+    border: none !important;
   }
 }
