@@ -26,7 +26,6 @@ import {
   subscribeToSyncEvents,
 } from "@/lib/sync";
 import {
-  DEFAULT_BISTRO_GEO_PRESET,
   HEATBOX_GEO_PRESET,
 } from "@/lib/presets";
 import { getAuthState } from "@/lib/auth";
@@ -176,9 +175,6 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
     let initialGeo = matched ? restaurantToGeoConfig(matched) : getStoredGeoConfig();
     if (urlPresetOverride === "heatbox") {
       initialGeo = { ...initialGeo, ...HEATBOX_GEO_PRESET, activePreset: "heatbox" };
-      saveStoredGeoConfig(initialGeo);
-    } else if (urlPresetOverride === "default") {
-      initialGeo = { ...initialGeo, ...DEFAULT_BISTRO_GEO_PRESET, activePreset: "default" };
       saveStoredGeoConfig(initialGeo);
     }
 
@@ -617,16 +613,16 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
         <div className="text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
           <p className="mt-4 text-xs font-bold uppercase tracking-widest text-slate-600">
-            Loading {geoConfig.restaurantName || "Sunshine Bistro"}...
+            Loading {geoConfig.restaurantName || "Heat Box Pizza"}...
           </p>
         </div>
       </div>
     );
   }
 
-  const restaurantName = geoConfig.restaurantName || "Sunshine Bistro";
-  const wifiSsid = geoConfig.wifiSsid || "Sunshine_Bistro_5G";
-  const wifiPassword = geoConfig.wifiPassword || "bistro2026";
+  const restaurantName = geoConfig.restaurantName || "Heat Box Pizza";
+  const wifiSsid = geoConfig.wifiSsid || "HeatBox_Peshawar_5G";
+  const wifiPassword = geoConfig.wifiPassword || "heatbox123";
   const wifiQrString = `WIFI:T:WPA;S:${wifiSsid};P:${wifiPassword};;`;
   const topChampions = [...leaderboard].sort((a, b) => b.score - a.score).slice(0, 3);
 

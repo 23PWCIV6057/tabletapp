@@ -7,6 +7,7 @@ import {
   AlertTriangleIcon,
   CheckCircleIcon,
   ClockIcon,
+  DownloadIcon,
   LockIcon,
   MapPinIcon,
   PrinterIcon,
@@ -14,9 +15,11 @@ import {
   SearchIcon,
   ShieldCheckIcon,
   SparklesIcon,
+  TrashIcon,
   UtensilsIcon,
   XIcon,
 } from "@/components/Icons";
+import { broadcastSyncEvent, getStoredOrders, saveStoredOrders } from "@/lib/sync";
 
 export default function DeveloperPortalPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -57,6 +60,33 @@ export default function DeveloperPortalPage() {
   const [sheetParseError, setSheetParseError] = useState<string | null>(null);
   const [isSubmittingRestaurant, setIsSubmittingRestaurant] = useState(false);
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
+
+  // Menu Editor Drawer State
+  const [drawerRestaurant, setDrawerRestaurant] = useState<Restaurant | null>(null);
+  const [drawerMenuItems, setDrawerMenuItems] = useState<MenuItem[]>([]);
+  const [isLoadingMenu, setIsLoadingMenu] = useState(false);
+  const [menuFilterCategory, setMenuFilterCategory] = useState("All");
+  const [menuSearchTerm, setMenuSearchTerm] = useState("");
+  const [editingDish, setEditingDish] = useState<MenuItem | null>(null);
+  const [isAddingDish, setIsAddingDish] = useState(false);
+  const [isSavingDish, setIsSavingDish] = useState(false);
+  const [newDishForm, setNewDishForm] = useState({
+    name: "",
+    category: "Pizzas",
+    price: "999",
+    description: "",
+    tag: "Popular",
+    prepTimeMinutes: "15",
+    available: true,
+    imageUrl: "",
+  });
+
+  // Order Purge Modal State
+  const [purgeRestaurant, setPurgeRestaurant] = useState<Restaurant | null>(null);
+  const [purgeMode, setPurgeMode] = useState<"active_only" | "factory_reset">("factory_reset");
+  const [purgeConfirmInput, setPurgeConfirmInput] = useState("");
+  const [purgeOrderCount, setPurgeOrderCount] = useState<number | null>(null);
+  const [isPurgingOrders, setIsPurgingOrders] = useState(false);
 
   // Check existing session on mount
   useEffect(() => {
@@ -247,6 +277,249 @@ export default function DeveloperPortalPage() {
       }
     } catch {
       alert("Failed to delete restaurant.");
+    }
+  };
+
+  // Open Menu Editor Drawer
+  const openMenuDrawer = async (r: Restaurant) => {
+    setDrawerRestaurant(r);
+    setIsLoadingMenu(true);
+    setMenuFilterCategory("All");
+    setMenuSearchTerm("");
+    setEditingDish(null);
+    setIsAddingDish(false);
+
+    try {
+      const res = await fetch(`/api/dev/restaurants/${r.id}/menu`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.menu) && data.menu.length > 0) {
+        setDrawerMenuItems(data.menu);
+      } else {
+        if (typeof window !== "undefined") {
+          const tenantRaw = localStorage.getItem(`tabletapp_menu_${r.id}`);
+          if (tenantRaw) {
+            setDrawerMenuItems(JSON.parse(tenantRaw));
+          } else if (r.slug === "heatbox") {
+            const hb = localStorage.getItem("tabletapp_heatbox_menu_v1") || localStorage.getItem("tabletapp_menu_v1");
+            setDrawerMenuItems(hb ? JSON.parse(hb) : []);
+          } else {
+            setDrawerMenuItems([]);
+          }
+        }
+      }
+    } catch {
+      // Fallback
+    } finally {
+      setIsLoadingMenu(false);
+    }
+  };
+
+  const handleSaveEditedDish = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDish || !drawerRestaurant) return;
+    setIsSavingDish(true);
+
+    const updatedMenu = drawerMenuItems.map((item) =>
+      item.id === editingDish.id ? editingDish : item
+    );
+    setDrawerMenuItems(updatedMenu);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`tabletapp_menu_${drawerRestaurant.id}`, JSON.stringify(updatedMenu));
+      if (drawerRestaurant.slug === "heatbox") {
+        localStorage.setItem("tabletapp_heatbox_menu_v1", JSON.stringify(updatedMenu));
+        localStorage.setItem("tabletapp_menu_v1", JSON.stringify(updatedMenu));
+      }
+    }
+
+    try {
+      await fetch(`/api/dev/restaurants/${drawerRestaurant.id}/menu`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menu: updatedMenu }),
+      });
+    } catch {
+      // Fallback
+    } finally {
+      setIsSavingDish(false);
+      setEditingDish(null);
+      setActionSuccessToast(`Updated "${editingDish.name}" for ${drawerRestaurant.name}.`);
+    }
+  };
+
+  const handleCreateNewDish = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!drawerRestaurant || !newDishForm.name.trim()) return;
+    setIsSavingDish(true);
+
+    const newDish: MenuItem = {
+      id: Date.now(),
+      name: newDishForm.name.trim(),
+      category: (newDishForm.category.trim() || "Main Dishes") as any,
+      price: Math.max(0, Number(newDishForm.price) || 0),
+      description: newDishForm.description.trim(),
+      tag: newDishForm.tag.trim() || "Popular",
+      prepTimeMinutes: Math.max(1, Number(newDishForm.prepTimeMinutes) || 12),
+      available: newDishForm.available,
+      imageUrl: newDishForm.imageUrl.trim() || undefined,
+      restaurantId: drawerRestaurant.id,
+    };
+
+    const updatedMenu = [newDish, ...drawerMenuItems];
+    setDrawerMenuItems(updatedMenu);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`tabletapp_menu_${drawerRestaurant.id}`, JSON.stringify(updatedMenu));
+      if (drawerRestaurant.slug === "heatbox") {
+        localStorage.setItem("tabletapp_heatbox_menu_v1", JSON.stringify(updatedMenu));
+        localStorage.setItem("tabletapp_menu_v1", JSON.stringify(updatedMenu));
+      }
+    }
+
+    try {
+      await fetch(`/api/dev/restaurants/${drawerRestaurant.id}/menu`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menu: updatedMenu }),
+      });
+    } catch {
+      // Fallback
+    } finally {
+      setIsSavingDish(false);
+      setIsAddingDish(false);
+      setNewDishForm({
+        name: "",
+        category: "Pizzas",
+        price: "999",
+        description: "",
+        tag: "Popular",
+        prepTimeMinutes: "15",
+        available: true,
+        imageUrl: "",
+      });
+      setActionSuccessToast(`Added "${newDish.name}" to ${drawerRestaurant.name}.`);
+    }
+  };
+
+  const handleDeleteDish = async (dishId: number, dishName: string) => {
+    if (!drawerRestaurant) return;
+    if (!confirm(`Delete "${dishName}" from ${drawerRestaurant.name}?`)) return;
+
+    const updatedMenu = drawerMenuItems.filter((d) => d.id !== dishId);
+    setDrawerMenuItems(updatedMenu);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`tabletapp_menu_${drawerRestaurant.id}`, JSON.stringify(updatedMenu));
+      if (drawerRestaurant.slug === "heatbox") {
+        localStorage.setItem("tabletapp_heatbox_menu_v1", JSON.stringify(updatedMenu));
+        localStorage.setItem("tabletapp_menu_v1", JSON.stringify(updatedMenu));
+      }
+    }
+
+    try {
+      await fetch(`/api/dev/restaurants/${drawerRestaurant.id}/menu?itemId=${dishId}`, {
+        method: "DELETE",
+      });
+    } catch {
+      // Fallback
+    }
+
+    setActionSuccessToast(`Deleted "${dishName}".`);
+  };
+
+  const handleToggleDishAvailability = async (dish: MenuItem) => {
+    if (!drawerRestaurant) return;
+    const toggled = { ...dish, available: !dish.available };
+    const updatedMenu = drawerMenuItems.map((d) => (d.id === dish.id ? toggled : d));
+    setDrawerMenuItems(updatedMenu);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`tabletapp_menu_${drawerRestaurant.id}`, JSON.stringify(updatedMenu));
+      if (drawerRestaurant.slug === "heatbox") {
+        localStorage.setItem("tabletapp_heatbox_menu_v1", JSON.stringify(updatedMenu));
+        localStorage.setItem("tabletapp_menu_v1", JSON.stringify(updatedMenu));
+      }
+    }
+
+    try {
+      await fetch(`/api/dev/restaurants/${drawerRestaurant.id}/menu`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menu: updatedMenu }),
+      });
+    } catch {
+      // Fallback
+    }
+  };
+
+  // Open Order Purge Modal
+  const openPurgeModal = async (r: Restaurant) => {
+    setPurgeRestaurant(r);
+    setPurgeMode("factory_reset");
+    setPurgeConfirmInput("");
+    setPurgeOrderCount(null);
+
+    try {
+      const res = await fetch(`/api/dev/restaurants/${r.id}/orders`);
+      const data = await res.json();
+      if (data.success) {
+        setPurgeOrderCount(data.orderCount ?? 0);
+      }
+    } catch {
+      const local = getStoredOrders().filter(
+        (o) => o.restaurantId === r.id || (r.slug === "heatbox" && !o.restaurantId)
+      );
+      setPurgeOrderCount(local.length);
+    }
+  };
+
+  const handleExecutePurge = async () => {
+    if (!purgeRestaurant) return;
+    if (purgeConfirmInput.trim().toUpperCase() !== "CONFIRM") {
+      alert('Please type "CONFIRM" to authorize order history wipe.');
+      return;
+    }
+
+    setIsPurgingOrders(true);
+    try {
+      await fetch(`/api/dev/restaurants/${purgeRestaurant.id}/orders?mode=${purgeMode}`, {
+        method: "DELETE",
+      });
+
+      const allOrders = getStoredOrders();
+      let remainingOrders: any[];
+      if (purgeMode === "active_only") {
+        remainingOrders = allOrders.filter(
+          (o) =>
+            (o.restaurantId !== purgeRestaurant.id &&
+              (purgeRestaurant.slug !== "heatbox" || o.restaurantId)) ||
+            o.status === "Served" ||
+            o.status === "Archived"
+        );
+      } else {
+        remainingOrders = allOrders.filter((o) => {
+          if (o.restaurantId === purgeRestaurant.id) return false;
+          if (purgeRestaurant.slug === "heatbox" && !o.restaurantId) return false;
+          return true;
+        });
+      }
+
+      saveStoredOrders(remainingOrders);
+      broadcastSyncEvent({
+        type: "ORDER_STATUS_CHANGED",
+        payload: { orderId: "sync_purge", status: "Archived" as any, updatedAt: Date.now() },
+      });
+
+      setActionSuccessToast(
+        `Order history for ${purgeRestaurant.name} wiped (${
+          purgeMode === "active_only" ? "Active tickets cleared" : "Full factory reset"
+        }).`
+      );
+      setPurgeRestaurant(null);
+    } catch (err) {
+      alert("Failed to wipe order history. Please try again.");
+    } finally {
+      setIsPurgingOrders(false);
     }
   };
 
@@ -592,6 +865,24 @@ export default function DeveloperPortalPage() {
                         <span>Owner Suite</span>
                         <span>↗</span>
                       </Link>
+
+                      <button
+                        type="button"
+                        onClick={() => openMenuDrawer(r)}
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-950/60 px-3.5 py-1.5 text-xs font-bold text-sky-300 hover:bg-sky-900/60 transition"
+                      >
+                        <UtensilsIcon size={14} />
+                        <span>Edit Menu</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => openPurgeModal(r)}
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-950/60 px-3.5 py-1.5 text-xs font-bold text-rose-300 hover:bg-rose-900/60 transition"
+                      >
+                        <TrashIcon size={14} />
+                        <span>Clean Orders</span>
+                      </button>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -891,6 +1182,575 @@ export default function DeveloperPortalPage() {
           </section>
         )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* 1. Slide-Over Menu Editor Drawer */}
+      {/* ========================================================================= */}
+      {drawerRestaurant && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex justify-end bg-slate-950/75 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !editingDish && !isAddingDish) {
+              setDrawerRestaurant(null);
+            }
+          }}
+        >
+          <div className="flex h-full w-full max-w-2xl flex-col bg-slate-900 border-l border-slate-800 p-6 shadow-2xl overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div>
+                <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-xs font-mono font-bold text-amber-400">
+                  /r/{drawerRestaurant.slug}
+                </span>
+                <h3 className="font-display mt-1 text-xl font-bold text-white">
+                  Menu Manager: {drawerRestaurant.name}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {drawerMenuItems.length} dishes live in catalog • Updates sync to customer tables in real-time
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddingDish(true)}
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-amber-500 px-4 py-2 text-xs font-black text-slate-950 hover:bg-amber-400 transition"
+                >
+                  <span>+ Add Dish</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Close Drawer"
+                  onClick={() => setDrawerRestaurant(null)}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:text-white"
+                >
+                  <XIcon size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="mt-4 space-y-3">
+              <div className="relative">
+                <input
+                  type="search"
+                  value={menuSearchTerm}
+                  onChange={(e) => setMenuSearchTerm(e.target.value)}
+                  placeholder="Search dishes by name or description..."
+                  className="min-h-11 w-full rounded-2xl border border-slate-800 bg-slate-950 py-2.5 pl-10 pr-4 text-xs text-white placeholder:text-slate-500 focus:border-amber-400"
+                />
+                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500">
+                  <SearchIcon size={15} />
+                </span>
+              </div>
+
+              {/* Category Pills */}
+              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                {["All", ...Array.from(new Set(drawerMenuItems.map((d) => d.category)))].map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setMenuFilterCategory(cat)}
+                    className={`min-h-9 shrink-0 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                      menuFilterCategory === cat
+                        ? "bg-amber-500 text-slate-950"
+                        : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Dish List */}
+            <div className="mt-4 flex-1 space-y-2.5 overflow-y-auto pr-1">
+              {isLoadingMenu ? (
+                <div className="py-12 text-center text-xs text-slate-500">
+                  <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent mb-3" />
+                  Loading restaurant catalog...
+                </div>
+              ) : drawerMenuItems.length === 0 ? (
+                <div className="py-12 text-center text-xs text-slate-500">
+                  No dishes found. Click &quot;+ Add Dish&quot; above or upload an Excel menu in the Onboarding tab.
+                </div>
+              ) : (
+                drawerMenuItems
+                  .filter((d) => {
+                    const matchCat = menuFilterCategory === "All" || d.category === menuFilterCategory;
+                    const matchSearch =
+                      !menuSearchTerm ||
+                      d.name.toLowerCase().includes(menuSearchTerm.toLowerCase()) ||
+                      (d.description || "").toLowerCase().includes(menuSearchTerm.toLowerCase());
+                    return matchCat && matchSearch;
+                  })
+                  .map((dish) => (
+                    <div
+                      key={dish.id}
+                      className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/70 p-3.5 transition hover:border-slate-700"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {dish.imageUrl ? (
+                          <img
+                            src={dish.imageUrl}
+                            alt={dish.name}
+                            className="h-12 w-12 rounded-xl object-cover border border-slate-800 shrink-0"
+                          />
+                        ) : (
+                          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-800 text-slate-500 shrink-0">
+                            <UtensilsIcon size={18} />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-xs truncate">{dish.name}</span>
+                            {dish.tag && (
+                              <span className="rounded-md bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 shrink-0">
+                                {dish.tag}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 truncate max-w-sm">
+                            {dish.category} • {dish.prepTimeMinutes || 12} min prep
+                          </p>
+                          <p className="text-xs font-mono font-bold text-amber-400 mt-0.5">
+                            {drawerRestaurant.currency === "PKR" ? "Rs." : "$"} {dish.price.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDishAvailability(dish)}
+                          className={`min-h-8 rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${
+                            dish.available
+                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                              : "bg-slate-800 text-slate-500"
+                          }`}
+                        >
+                          {dish.available ? "In Stock" : "Sold Out"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditingDish({ ...dish })}
+                          className="min-h-8 rounded-lg bg-slate-800 px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:bg-slate-700"
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDish(dish.id, dish.name)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                        >
+                          <TrashIcon size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Dish Modal */}
+      {editingDish && drawerRestaurant && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isSavingDish) setEditingDish(null);
+          }}
+        >
+          <div className="w-full max-w-md rounded-[32px] border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-display text-lg font-bold text-white">
+                Edit Dish: {editingDish.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingDish(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <XIcon size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedDish} className="mt-4 space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-300">Dish Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editingDish.name}
+                  onChange={(e) => setEditingDish({ ...editingDish, name: e.target.value })}
+                  className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white focus:border-amber-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-300">Category</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingDish.category}
+                    onChange={(e) => setEditingDish({ ...editingDish, category: e.target.value as any })}
+                    className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-300">
+                    Price ({drawerRestaurant.currency})
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={editingDish.price}
+                    onChange={(e) => setEditingDish({ ...editingDish, price: Number(e.target.value) })}
+                    className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white font-mono focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300">Description</label>
+                <textarea
+                  rows={2}
+                  value={editingDish.description || ""}
+                  onChange={(e) => setEditingDish({ ...editingDish, description: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white focus:border-amber-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-300">Tag / Badge</label>
+                  <input
+                    type="text"
+                    value={editingDish.tag || ""}
+                    onChange={(e) => setEditingDish({ ...editingDish, tag: e.target.value })}
+                    placeholder="e.g. Hot Seller"
+                    className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-300">Prep Time (min)</label>
+                  <input
+                    type="number"
+                    value={editingDish.prepTimeMinutes || 12}
+                    onChange={(e) => setEditingDish({ ...editingDish, prepTimeMinutes: Number(e.target.value) })}
+                    className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300">Image URL</label>
+                <input
+                  type="url"
+                  value={editingDish.imageUrl || ""}
+                  onChange={(e) => setEditingDish({ ...editingDish, imageUrl: e.target.value })}
+                  placeholder="https://..."
+                  className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white font-mono focus:border-amber-400"
+                />
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingDish.available ?? true}
+                    onChange={(e) => setEditingDish({ ...editingDish, available: e.target.checked })}
+                    className="h-4 w-4 rounded accent-amber-500"
+                  />
+                  <span className="font-bold text-slate-300">Available for Ordering</span>
+                </label>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingDish(null)}
+                    className="min-h-10 rounded-full px-4 text-xs font-bold text-slate-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingDish}
+                    className="min-h-10 rounded-full bg-amber-500 px-5 text-xs font-black text-slate-950 hover:bg-amber-400 transition"
+                  >
+                    {isSavingDish ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add New Dish Modal */}
+      {isAddingDish && drawerRestaurant && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isSavingDish) setIsAddingDish(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-[32px] border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-display text-lg font-bold text-white">
+                Add Dish to {drawerRestaurant.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddingDish(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <XIcon size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewDish} className="mt-4 space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-300">Dish Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Peri Peri Loaded Pizza"
+                  value={newDishForm.name}
+                  onChange={(e) => setNewDishForm({ ...newDishForm, name: e.target.value })}
+                  className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white focus:border-amber-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-300">Category</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Pizzas"
+                    value={newDishForm.category}
+                    onChange={(e) => setNewDishForm({ ...newDishForm, category: e.target.value })}
+                    className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-300">
+                    Price ({drawerRestaurant.currency})
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={newDishForm.price}
+                    onChange={(e) => setNewDishForm({ ...newDishForm, price: e.target.value })}
+                    className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white font-mono focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300">Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Ingredients, crust type, portion size..."
+                  value={newDishForm.description}
+                  onChange={(e) => setNewDishForm({ ...newDishForm, description: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-white focus:border-amber-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-300">Tag / Badge</label>
+                  <input
+                    type="text"
+                    value={newDishForm.tag}
+                    onChange={(e) => setNewDishForm({ ...newDishForm, tag: e.target.value })}
+                    placeholder="e.g. Chef Choice"
+                    className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-300">Prep Time (min)</label>
+                  <input
+                    type="number"
+                    value={newDishForm.prepTimeMinutes}
+                    onChange={(e) => setNewDishForm({ ...newDishForm, prepTimeMinutes: e.target.value })}
+                    className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-300">Image URL (Optional)</label>
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={newDishForm.imageUrl}
+                  onChange={(e) => setNewDishForm({ ...newDishForm, imageUrl: e.target.value })}
+                  className="mt-1 min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-white font-mono focus:border-amber-400"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsAddingDish(false)}
+                  className="min-h-10 rounded-full px-4 text-xs font-bold text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingDish}
+                  className="min-h-10 rounded-full bg-amber-500 px-5 text-xs font-black text-slate-950 hover:bg-amber-400 transition"
+                >
+                  {isSavingDish ? "Adding Dish..." : "Add to Menu"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. Order History Purge Modal */}
+      {/* ========================================================================= */}
+      {purgeRestaurant && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isPurgingOrders) {
+              setPurgeRestaurant(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-lg rounded-[32px] border border-rose-500/40 bg-slate-900 p-6 sm:p-8 shadow-2xl space-y-5">
+            <div className="flex items-start gap-4">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                <AlertTriangleIcon size={24} />
+              </span>
+              <div>
+                <span className="rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-mono font-bold text-rose-400">
+                  Tenant Isolation
+                </span>
+                <h3 className="font-display mt-1 text-xl font-black text-white">
+                  Clean Orders: {purgeRestaurant.name}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Orders belonging strictly to <strong className="text-white">{purgeRestaurant.name}</strong> will be wiped. Other restaurants are untouched.
+                </p>
+              </div>
+            </div>
+
+            {/* Order Count & CSV Download Option */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-xs text-slate-400">Current Orders On File:</p>
+                <p className="text-lg font-black text-white">
+                  {purgeOrderCount === null ? "Checking..." : `${purgeOrderCount} orders recorded`}
+                </p>
+              </div>
+
+              <a
+                href={`/api/dev/restaurants/${purgeRestaurant.id}/orders?format=csv`}
+                target="_blank"
+                rel="noreferrer"
+                download={`${purgeRestaurant.slug}-orders-backup.csv`}
+                className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-200 hover:bg-slate-700 transition"
+              >
+                <DownloadIcon size={14} />
+                <span>Export CSV Backup</span>
+              </a>
+            </div>
+
+            {/* Wipe Mode Selector */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-300">Select Wipe Scope:</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPurgeMode("factory_reset")}
+                  className={`rounded-2xl border p-3.5 text-left transition ${
+                    purgeMode === "factory_reset"
+                      ? "border-rose-500 bg-rose-950/40 text-white ring-1 ring-rose-500"
+                      : "border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700"
+                  }`}
+                >
+                  <p className="text-xs font-black">Full Factory Reset</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Deletes 100% of orders &amp; ticket history for this restaurant.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPurgeMode("active_only")}
+                  className={`rounded-2xl border p-3.5 text-left transition ${
+                    purgeMode === "active_only"
+                      ? "border-amber-500 bg-amber-950/40 text-white ring-1 ring-amber-500"
+                      : "border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700"
+                  }`}
+                >
+                  <p className="text-xs font-black">Active Tickets Only</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Clears cooking queue &amp; resets tables. Preserves served revenue.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Safety Confirmation Input */}
+            <div>
+              <label htmlFor="confirm-purge-input" className="block text-xs font-bold text-slate-300">
+                To confirm, type <span className="font-mono text-rose-400">CONFIRM</span> below:
+              </label>
+              <input
+                id="confirm-purge-input"
+                type="text"
+                value={purgeConfirmInput}
+                onChange={(e) => setPurgeConfirmInput(e.target.value)}
+                placeholder="CONFIRM"
+                className="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm font-mono text-white focus:border-rose-500"
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={isPurgingOrders}
+                onClick={() => setPurgeRestaurant(null)}
+                className="min-h-11 rounded-full px-5 py-2 text-xs font-bold text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isPurgingOrders || purgeConfirmInput.trim().toUpperCase() !== "CONFIRM"}
+                onClick={handleExecutePurge}
+                className="min-h-11 rounded-full bg-rose-600 px-6 py-2 text-xs font-black uppercase tracking-wider text-white hover:bg-rose-500 disabled:opacity-40 transition shadow-lg shadow-rose-600/30"
+              >
+                {isPurgingOrders ? "Purging Orders..." : "Permanently Wipe Orders"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

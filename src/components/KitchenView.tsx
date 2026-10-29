@@ -848,7 +848,7 @@ export default function KitchenView({
         >
           <div className="text-center border-b border-dashed border-black pb-2 mb-2">
             <p className="text-base font-black uppercase">
-              {geoConfig?.restaurantName || "Sunshine Bistro"}
+              {geoConfig?.restaurantName || "Heat Box Pizza"}
             </p>
             <p className="text-[11px]">
               {printingSlip.mode === "kot"

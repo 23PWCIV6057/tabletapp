@@ -12,16 +12,6 @@ export const HEATBOX_GEO_PRESET: Partial<GeoFenceConfig> = {
   arcadePrizeText: "Free Molten Lava Cake on #1 Daily Score!",
 };
 
-export const DEFAULT_BISTRO_GEO_PRESET: Partial<GeoFenceConfig> = {
-  activePreset: "default",
-  restaurantName: "Sunshine Bistro",
-  tagline: "Table-Side Ordering • Live Kitchen Sync",
-  currency: "PKR",
-  wifiSsid: "Sunshine_Guest_5G",
-  wifiPassword: "dinein2026",
-  arcadePrizeText: "Free Fresh Lime Soda on #1 Daily Score!",
-};
-
 export const HEATBOX_MENU_DATA: MenuItem[] = [
   {
     "id": 887723,

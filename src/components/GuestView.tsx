@@ -197,7 +197,7 @@ export default function GuestView({
   };
 
   const currency = geoConfig?.currency || "PKR";
-  const restaurantName = geoConfig?.restaurantName || "Sunshine Bistro";
+  const restaurantName = geoConfig?.restaurantName || "Heat Box Pizza";
   const securityMode = geoConfig?.securityMode || "hybrid_gps";
   const dailyCode = (geoConfig?.dailyDineInCode || "42").trim();
 

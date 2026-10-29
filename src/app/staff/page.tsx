@@ -24,7 +24,6 @@ import {
   subscribeToSyncEvents,
 } from "@/lib/sync";
 import {
-  DEFAULT_BISTRO_GEO_PRESET,
   HEATBOX_GEO_PRESET,
   HEATBOX_MENU_DATA,
 } from "@/lib/presets";
@@ -461,39 +460,6 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
     broadcastSyncEvent({ type: "MENU_UPDATED", payload: newMenu });
   };
 
-  const handleSelectPreset = async (
-    preset: "default" | "heatbox",
-    resetPresetMenu?: boolean
-  ) => {
-    const patch =
-      preset === "heatbox" ? HEATBOX_GEO_PRESET : DEFAULT_BISTRO_GEO_PRESET;
-    const nextGeo: GeoFenceConfig = {
-      ...geoConfig,
-      ...patch,
-      activePreset: preset,
-    };
-    setGeoConfig(nextGeo);
-    saveStoredGeoConfig(nextGeo);
-    broadcastSyncEvent({ type: "GEO_CONFIG_UPDATED", payload: nextGeo });
-    syncGeoConfigToSupabase(nextGeo);
-
-    if (preset === "heatbox") {
-      if (resetPresetMenu) {
-        savePresetMenu(HEATBOX_MENU_DATA, "heatbox");
-      }
-      const hbMenu = resetPresetMenu
-        ? HEATBOX_MENU_DATA
-        : getPresetMenu("heatbox");
-      setMenu(hbMenu);
-      broadcastSyncEvent({ type: "MENU_UPDATED", payload: hbMenu });
-    } else {
-      const defMenu = (await fetchMenuFromSupabase()) || getStoredMenu();
-      setMenu(defMenu);
-      saveStoredMenu(defMenu);
-      broadcastSyncEvent({ type: "MENU_UPDATED", payload: defMenu });
-    }
-  };
-
   const handleUpdateGeoConfig = (newConfig: GeoFenceConfig) => {
     setGeoConfig(newConfig);
     saveStoredGeoConfig(newConfig);
@@ -856,7 +822,6 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
               geoConfig={geoConfig}
               onUpdateMenu={handleUpdateMenu}
               onUpdateGeoConfig={handleUpdateGeoConfig}
-              onSelectPreset={handleSelectPreset}
               onLockSession={handleLockSession}
             />
           )}

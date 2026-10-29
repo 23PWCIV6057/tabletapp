@@ -68,7 +68,7 @@ export async function printOrderViaEscPos(
   if (!activeSerialPort || !activeSerialPort.writable) return false;
 
   const currency = config.currency || "PKR";
-  const restaurantName = (config.restaurantName || "Sunshine Bistro").toUpperCase();
+  const restaurantName = (config.restaurantName || "Heat Box Pizza").toUpperCase();
   const timeStr = new Date(order.createdAt).toLocaleString([], {
     month: "short",
     day: "2-digit",

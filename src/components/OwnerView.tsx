@@ -22,7 +22,6 @@ interface OwnerViewProps {
   geoConfig?: GeoFenceConfig;
   onUpdateMenu: (menu: MenuItem[]) => void;
   onUpdateGeoConfig?: (config: GeoFenceConfig) => void;
-  onSelectPreset?: (preset: "default" | "heatbox", resetPresetMenu?: boolean) => void;
   onLockSession: () => void;
 }
 
@@ -32,7 +31,6 @@ export default function OwnerView({
   geoConfig = DEFAULT_GEO_CONFIG,
   onUpdateMenu,
   onUpdateGeoConfig,
-  onSelectPreset,
   onLockSession,
 }: OwnerViewProps) {
   const [subTab, setSubTab] = useState<"menu" | "qr" | "analytics" | "security">("menu");
@@ -65,7 +63,7 @@ export default function OwnerView({
   }, [geoConfig]);
 
   const currency: CurrencyCode = geoForm.currency || geoConfig.currency || "PKR";
-  const restaurantName = geoForm.restaurantName || geoConfig.restaurantName || "Sunshine Bistro";
+  const restaurantName = geoForm.restaurantName || geoConfig.restaurantName || "TableTapp";
   const currentToken = getTokenForTable(selectedTableForQr);
   const currentQrUrl = `${domainUrl.replace(/\/$/, "")}/t/${currentToken}`;
 
@@ -404,59 +402,6 @@ export default function OwnerView({
       {/* Subtab 1: Menu Manager */}
       {subTab === "menu" && (
         <div className="space-y-6">
-          {/* Pitch / Restaurant Iteration Switcher */}
-          <div className="rounded-[28px] border-2 border-amber-300/80 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 p-5 sm:p-6 text-white shadow-lg">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <span className="inline-block rounded-full bg-amber-500 px-3 py-0.5 text-xs font-black uppercase tracking-wider text-slate-950">
-                  Live Pitch & Restaurant Iterations
-                </span>
-                <h3 className="font-display mt-1.5 text-xl font-bold text-white">
-                  Switch Active Restaurant Menu & Branding
-                </h3>
-                <p className="mt-0.5 text-xs text-slate-300">
-                  Your default Supabase database stays untouched. Activate a tailored restaurant iteration below for live client demos (or share <span className="font-mono text-amber-300">/?preset=heatbox</span>).
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => onSelectPreset?.("default")}
-                  className={`min-h-11 rounded-2xl px-4 py-2.5 text-xs font-black transition ${
-                    (geoConfig.activePreset || "default") === "default"
-                      ? "bg-amber-500 text-slate-950 shadow-md"
-                      : "border border-slate-700 bg-slate-800/80 text-slate-200 hover:bg-slate-800"
-                  }`}
-                >
-                  Default: Sunshine Bistro (Supabase)
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onSelectPreset?.("heatbox")}
-                  className={`min-h-11 rounded-2xl px-4 py-2.5 text-xs font-black transition ${
-                    geoConfig.activePreset === "heatbox"
-                      ? "bg-rose-600 text-white shadow-md ring-2 ring-amber-400"
-                      : "border border-rose-500/40 bg-rose-950/50 text-rose-200 hover:bg-rose-900/60"
-                  }`}
-                >
-                  Pitch #1: Heat Box Pizza (Peshawar • 66 Items & Deals)
-                </button>
-
-                {geoConfig.activePreset === "heatbox" && (
-                  <button
-                    type="button"
-                    onClick={() => onSelectPreset?.("heatbox", true)}
-                    className="min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800 transition"
-                  >
-                    Reset Heat Box Menu
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
           {/* Menu Items Table */}
           <div className="min-w-0 rounded-[28px] border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
@@ -985,9 +930,9 @@ export default function OwnerView({
                   <input
                     id="wifi-ssid-input"
                     type="text"
-                    value={geoForm.wifiSsid ?? "Sunshine_Bistro_5G"}
+                    value={geoForm.wifiSsid ?? "HeatBox_Peshawar_5G"}
                     onChange={(e) => setGeoForm({ ...geoForm, wifiSsid: e.target.value })}
-                    placeholder="e.g. Sunshine_Bistro_5G"
+                    placeholder="e.g. HeatBox_Peshawar_5G"
                     className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-amber-500"
                   />
                 </div>
