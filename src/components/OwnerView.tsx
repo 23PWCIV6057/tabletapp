@@ -848,7 +848,7 @@ export default function OwnerView({
                     required
                     value={geoForm.restaurantName}
                     onChange={(e) => setGeoForm({ ...geoForm, restaurantName: e.target.value })}
-                    placeholder="e.g. Khyber Roast & Bistro"
+                    placeholder="e.g. Heat Box Pizza"
                     className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-bold text-slate-900 focus:border-amber-500"
                   />
                 </div>
@@ -944,9 +944,9 @@ export default function OwnerView({
                   <input
                     id="wifi-pass-input"
                     type="text"
-                    value={geoForm.wifiPassword ?? "bistro2026"}
+                    value={geoForm.wifiPassword ?? "heatbox123"}
                     onChange={(e) => setGeoForm({ ...geoForm, wifiPassword: e.target.value })}
-                    placeholder="e.g. bistro2026"
+                    placeholder="e.g. heatbox123"
                     className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-amber-500"
                   />
                 </div>

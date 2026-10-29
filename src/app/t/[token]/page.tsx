@@ -81,7 +81,7 @@ export default function TokenResolverPage() {
           <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-rose-700">
             {token}
           </code>{" "}
-          is not registered to an active dining table at Sunshine Bistro.
+          is not registered to an active dining table at Heat Box Pizza.
         </p>
 
         <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left text-xs text-slate-600 space-y-2">

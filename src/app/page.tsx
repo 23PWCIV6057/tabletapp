@@ -177,14 +177,20 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
       }
     }
 
-    // Live restaurant status check
+    // Live restaurant status & custom tenant config/menu check
     fetch(`/api/restaurants/${activeTenantSlug}/status`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.success && data.status) {
-          const suspended = data.status === "suspended";
+        if (data.success) {
+          const suspended = data.status === "suspended" || Boolean(data.deleted);
           setIsSuspended(suspended);
           setRestaurantSuspensionFlag(activeTenantSlug, data.id || "", suspended);
+          if (data.restaurant) {
+            setGeoConfig(restaurantToGeoConfig(data.restaurant));
+          }
+          if (Array.isArray(data.menu) && data.menu.length > 0) {
+            setMenu(data.menu);
+          }
         }
       })
       .catch(() => {});
@@ -430,6 +436,16 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
           }
           break;
         }
+        case "RESTAURANT_DELETED": {
+          if (
+            event.payload.slug?.toLowerCase() === activeTenantSlug ||
+            event.payload.restaurantId === currentRestaurant?.id
+          ) {
+            setIsSuspended(true);
+            setRestaurantSuspensionFlag(activeTenantSlug, event.payload.restaurantId, true);
+          }
+          break;
+        }
       }
     });
 
@@ -561,7 +577,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
   };
 
   const handleCopyWifiPassword = () => {
-    const pwd = geoConfig.wifiPassword || "bistro2026";
+    const pwd = geoConfig.wifiPassword || "heatbox123";
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(pwd);
       setWifiCopied(true);
@@ -890,7 +906,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
                     Play Game &amp; Compete
                   </h3>
                   <p className="mt-2 text-xs text-slate-600 leading-relaxed">
-                    Play Bistro Reflex Rush or challenge our AI Chef Bot while you wait! Beat
+                    Play Reflex Rush or challenge our AI Chef Bot while you wait! Beat
                     the restaurant&apos;s high score to put your name at #1.
                   </p>
                 </div>

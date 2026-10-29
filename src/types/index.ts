@@ -166,4 +166,5 @@ export type SyncEvent =
   | { type: "GEO_CONFIG_UPDATED"; payload: GeoFenceConfig }
   | { type: "TABLE_TOKEN_ROTATED"; payload: { tableNumber: number; token: string } }
   | { type: "LEADERBOARD_UPDATED"; payload: LeaderboardEntry[] }
-  | { type: "RESTAURANT_STATUS_CHANGED"; payload: { restaurantId: string; slug: string; status: RestaurantStatus } };
+  | { type: "RESTAURANT_STATUS_CHANGED"; payload: { restaurantId: string; slug: string; status: RestaurantStatus } }
+  | { type: "RESTAURANT_DELETED"; payload: { restaurantId: string; slug: string } };

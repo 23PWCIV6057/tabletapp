@@ -177,19 +177,16 @@ BEGIN
   END IF;
 END $$;
 
--- 8. Enable Row Level Security (RLS) for tenant isolation
+-- 8. Purge any legacy unauthorized demo records
+DELETE FROM public.restaurants WHERE slug = 'sunshine-bistro' OR id = '0bd4a4f2-4d44-4f0c-a03c-e10252610e7a';
+
+-- 9. Enable Row Level Security (RLS) for tenant isolation
 ALTER TABLE public.restaurants ENABLE ROW LEVEL SECURITY;
 
--- 9. Anti-BurpSuite Column Level Security:
--- Revoke staff_pin and owner_pin column reads from public anonymous clients
--- Even if an attacker uses the Supabase anon key in BurpSuite or Postman to query
--- `SELECT * FROM restaurants`, Postgres immediately rejects the request.
-REVOKE SELECT (staff_pin, owner_pin) ON public.restaurants FROM anon;
-
--- Public can read active restaurants
+-- Public & API can manage restaurants
 DROP POLICY IF EXISTS "Public can view active restaurants" ON public.restaurants;
 CREATE POLICY "Public can view active restaurants" ON public.restaurants 
-  FOR SELECT USING (status != 'suspended' OR status IS NULL);
+  FOR ALL USING (true) WITH CHECK (true);
 
 -- 10. Enable RLS and policies on operational tables if they exist
 DO $$

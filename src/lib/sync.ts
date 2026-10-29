@@ -2,124 +2,16 @@ import { MenuItem, OrderCard, ServiceRequest, SyncEvent } from "@/types";
 import { HEATBOX_MENU_DATA } from "@/lib/presets";
 
 const CHANNEL_NAME = "table_tapp_bus";
-const STORAGE_ORDERS_KEY = "tabletapp_orders_v1";
-const STORAGE_SERVICES_KEY = "tabletapp_services_v1";
-const STORAGE_MENU_KEY = "tabletapp_menu_v1";
+const STORAGE_ORDERS_KEY = "tabletapp_orders_v2";
+const STORAGE_SERVICES_KEY = "tabletapp_services_v2";
+const STORAGE_MENU_KEY = "tabletapp_menu_v2";
 const STORAGE_HEATBOX_MENU_KEY = "tabletapp_menu_heatbox_v1";
 
 export const initialMenuData: MenuItem[] = HEATBOX_MENU_DATA;
 
-export const initialOrdersData: OrderCard[] = [
-  {
-    id: "ord_101",
-    orderNumber: 101,
-    table: 4,
-    items: [
-      {
-        itemId: 5,
-        name: "Prime Ribeye Steak (300g)",
-        basePrice: 34.0,
-        selectedModifiers: [{ groupName: "Meat Doneness", optionName: "Medium Rare", priceDelta: 0 }],
-        quantity: 1,
-        unitPrice: 34.0,
-        totalPrice: 34.0,
-        specialInstructions: "Sauce on the side please",
-      },
-      {
-        itemId: 2,
-        name: "Truffle Parmesan Fries",
-        basePrice: 9.5,
-        selectedModifiers: [{ groupName: "Portion Size", optionName: "Regular Basket", priceDelta: 0 }],
-        quantity: 1,
-        unitPrice: 9.5,
-        totalPrice: 9.5,
-      },
-    ],
-    subtotal: 43.5,
-    serviceFee: 1.5,
-    total: 45.0,
-    status: "New",
-    createdAt: Date.now() - 3 * 60 * 1000,
-    updatedAt: Date.now() - 3 * 60 * 1000,
-  },
-  {
-    id: "ord_102",
-    orderNumber: 102,
-    table: 7,
-    items: [
-      {
-        itemId: 6,
-        name: "Wild Mushroom Tagliatelle",
-        basePrice: 24.0,
-        selectedModifiers: [],
-        quantity: 1,
-        unitPrice: 24.0,
-        totalPrice: 24.0,
-      },
-      {
-        itemId: 9,
-        name: "Sparkling Citrus Spritz",
-        basePrice: 6.5,
-        selectedModifiers: [],
-        quantity: 2,
-        unitPrice: 6.5,
-        totalPrice: 13.0,
-      },
-    ],
-    subtotal: 37.0,
-    serviceFee: 1.5,
-    total: 38.5,
-    status: "Preparing",
-    createdAt: Date.now() - 8 * 60 * 1000,
-    updatedAt: Date.now() - 5 * 60 * 1000,
-  },
-  {
-    id: "ord_103",
-    orderNumber: 103,
-    table: 9,
-    items: [
-      {
-        itemId: 4,
-        name: "Grilled Citrus Chicken Bowl",
-        basePrice: 19.5,
-        selectedModifiers: [{ groupName: "Grain Base", optionName: "Tri-Color Quinoa", priceDelta: 0 }],
-        quantity: 2,
-        unitPrice: 19.5,
-        totalPrice: 39.0,
-      },
-    ],
-    subtotal: 39.0,
-    serviceFee: 1.5,
-    total: 40.5,
-    status: "Ready",
-    createdAt: Date.now() - 14 * 60 * 1000,
-    updatedAt: Date.now() - 2 * 60 * 1000,
-  },
-];
+export const initialOrdersData: OrderCard[] = [];
 
-export const initialServicesData: ServiceRequest[] = [
-  {
-    id: "srv_1",
-    table: 3,
-    type: "Water Refill",
-    status: "Pending",
-    createdAt: Date.now() - 2 * 60 * 1000,
-  },
-  {
-    id: "srv_2",
-    table: 6,
-    type: "Call Waiter",
-    status: "Pending",
-    createdAt: Date.now() - 5 * 60 * 1000,
-  },
-  {
-    id: "srv_3",
-    table: 8,
-    type: "Sauces & Condiments",
-    status: "Pending",
-    createdAt: Date.now() - 1 * 60 * 1000,
-  },
-];
+export const initialServicesData: ServiceRequest[] = [];
 
 export function getStoredMenu(): MenuItem[] {
   if (typeof window === "undefined") return initialMenuData;

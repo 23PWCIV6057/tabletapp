@@ -20,7 +20,7 @@ import {
   XIcon,
 } from "@/components/Icons";
 import { broadcastSyncEvent, getStoredOrders, saveStoredOrders } from "@/lib/sync";
-import { saveStoredRestaurants, setRestaurantSuspensionFlag } from "@/lib/restaurants";
+import { clearRestaurantLocalData, saveStoredRestaurants, setRestaurantSuspensionFlag } from "@/lib/restaurants";
 
 export default function DeveloperPortalPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -110,6 +110,8 @@ export default function DeveloperPortalPage() {
       const data = await res.json();
       if (data.success && Array.isArray(data.restaurants)) {
         setRestaurants(data.restaurants);
+        saveStoredRestaurants(data.restaurants);
+        clearRestaurantLocalData("sunshine-bistro", "0bd4a4f2-4d44-4f0c-a03c-e10252610e7a");
       }
     } catch {
       // Ignore
@@ -279,21 +281,57 @@ export default function DeveloperPortalPage() {
   };
 
   const handleDeleteRestaurant = async (r: Restaurant) => {
-    if (r.slug === "heatbox") {
-      alert("Heat Box is your primary demo iteration and cannot be removed.");
+    if (
+      !confirm(
+        `Are you sure you want to permanently delete "${r.name}" (/r/${r.slug})?\n\nThis will delete all of its data from Supabase (menu, orders, service requests, restaurant record), clear its local storage and card from Dev Mode, and sync across all connected devices.`
+      )
+    ) {
       return;
     }
-    if (!confirm(`Are you sure you want to permanently delete "${r.name}" and all its data?`)) return;
 
+    // 1. Immediately remove card and storage locally
+    const updated = restaurants.filter(
+      (item) => item.id !== r.id && item.slug.toLowerCase() !== r.slug.toLowerCase()
+    );
+    setRestaurants(updated);
+    saveStoredRestaurants(updated);
+    clearRestaurantLocalData(r.slug, r.id);
+    setRestaurantSuspensionFlag(r.slug, r.id, true);
+
+    if (drawerRestaurant?.id === r.id) setDrawerRestaurant(null);
+    if (purgeRestaurant?.id === r.id) setPurgeRestaurant(null);
+
+    // Clean any orders belonging to this restaurant in local storage
+    const remainingOrders = getStoredOrders().filter((o) => o.restaurantId !== r.id);
+    saveStoredOrders(remainingOrders);
+
+    // 2. Broadcast deletion and lockdown to any open tabs immediately
+    broadcastSyncEvent({
+      type: "RESTAURANT_DELETED",
+      payload: { restaurantId: r.id, slug: r.slug },
+    });
+    broadcastSyncEvent({
+      type: "RESTAURANT_STATUS_CHANGED",
+      payload: { restaurantId: r.id, slug: r.slug, status: "suspended" },
+    });
+
+    // 3. Delete from Supabase and server fleet store
     try {
       const res = await fetch(`/api/dev/restaurants/${r.id}`, {
         method: "DELETE",
       });
-      if (res.ok) {
-        loadFleet();
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.restaurants)) {
+        setRestaurants(data.restaurants);
+        saveStoredRestaurants(data.restaurants);
       }
+      setActionSuccessToast(
+        `"${r.name}" and all of its Supabase data, menu, orders, and storage have been permanently deleted.`
+      );
+      setTimeout(() => setActionSuccessToast(null), 5000);
     } catch {
-      alert("Failed to delete restaurant.");
+      setActionSuccessToast(`"${r.name}" removed from local storage.`);
+      setTimeout(() => setActionSuccessToast(null), 4000);
     }
   };
 
@@ -906,15 +944,13 @@ export default function DeveloperPortalPage() {
                         {r.status === "active" ? "Pause / Suspend" : "Reactivate"}
                       </button>
 
-                      {r.slug !== "heatbox" && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteRestaurant(r)}
-                          className="min-h-10 rounded-xl bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 transition"
-                        >
-                          Delete
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRestaurant(r)}
+                        className="min-h-10 rounded-xl bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 transition"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 </div>

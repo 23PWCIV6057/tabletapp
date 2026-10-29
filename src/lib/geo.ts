@@ -1,6 +1,6 @@
 import { CurrencyCode, GeoFenceConfig, LeaderboardEntry } from "@/types";
 
-const STORAGE_GEO_KEY = "tabletapp_geo_config_v1";
+const STORAGE_GEO_KEY = "tabletapp_geo_config_v2";
 const STORAGE_LEADERBOARD_KEY = "tabletapp_leaderboard_v1";
 
 // Default configuration (can be customized live by the restaurant owner in Owner Suite)
@@ -101,6 +101,13 @@ export function getStoredGeoConfig(): GeoFenceConfig {
       return DEFAULT_GEO_CONFIG;
     }
     const parsed = JSON.parse(raw);
+    if (
+      typeof parsed?.restaurantName === "string" &&
+      parsed.restaurantName.toLowerCase().includes("sunshine")
+    ) {
+      localStorage.setItem(STORAGE_GEO_KEY, JSON.stringify(DEFAULT_GEO_CONFIG));
+      return DEFAULT_GEO_CONFIG;
+    }
     return {
       ...DEFAULT_GEO_CONFIG,
       ...parsed,

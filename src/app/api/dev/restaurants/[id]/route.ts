@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isRequestDevAuthenticated } from "@/lib/devAuth";
-import { getStoredRestaurants, saveStoredRestaurants } from "@/lib/restaurants";
+import {
+  fetchCustomMenusFromSupabase,
+  fetchFleetFromSupabase,
+  saveStoredRestaurants,
+  syncCustomMenusToSupabase,
+  syncFleetToSupabase,
+} from "@/lib/restaurants";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   "";
 
 function getHeaders() {
@@ -26,10 +33,13 @@ export async function PATCH(
   }
 
   const { id } = await params;
+  const norm = (id || "").trim().toLowerCase();
   const body = await req.json();
 
-  const all = getStoredRestaurants();
-  const targetIdx = all.findIndex((r) => r.id === id || r.slug.toLowerCase() === id.toLowerCase());
+  const all = await fetchFleetFromSupabase();
+  const targetIdx = all.findIndex(
+    (r) => r.id.toLowerCase() === norm || r.slug.toLowerCase() === norm
+  );
 
   if (targetIdx === -1) {
     return NextResponse.json({ success: false, error: "Restaurant not found." }, { status: 404 });
@@ -44,31 +54,9 @@ export async function PATCH(
 
   all[targetIdx] = updated;
   saveStoredRestaurants(all);
+  await syncFleetToSupabase(all);
 
-  // Sync status to Supabase if configured
-  if (SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes("your-project-id")) {
-    try {
-      await fetch(
-        `${SUPABASE_URL}/rest/v1/restaurants?id=eq.${current.id}`,
-        {
-          method: "PATCH",
-          headers: getHeaders(),
-          body: JSON.stringify({
-            status: updated.status,
-            name: updated.name,
-            tagline: updated.tagline,
-            staff_pin: updated.staffPin,
-            owner_pin: updated.ownerPin,
-            updated_at: new Date().toISOString(),
-          }),
-        }
-      );
-    } catch (err) {
-      console.error("Failed to sync restaurant patch to Supabase:", err);
-    }
-  }
-
-  return NextResponse.json({ success: true, restaurant: updated });
+  return NextResponse.json({ success: true, restaurant: updated, restaurants: all });
 }
 
 export async function DELETE(
@@ -80,28 +68,63 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const all = getStoredRestaurants();
-  const target = all.find((r) => r.id === id || r.slug.toLowerCase() === id.toLowerCase());
-  const filtered = all.filter((r) => r.id !== id && r.slug.toLowerCase() !== id.toLowerCase());
+  const norm = (id || "").trim().toLowerCase();
 
-  if (filtered.length === all.length) {
-    return NextResponse.json({ success: false, error: "Restaurant not found." }, { status: 404 });
-  }
+  const all = await fetchFleetFromSupabase();
+  const target = all.find(
+    (r) => r.id.toLowerCase() === norm || r.slug.toLowerCase() === norm
+  );
+  const filtered = all.filter(
+    (r) => r.id.toLowerCase() !== norm && r.slug.toLowerCase() !== norm
+  );
 
   saveStoredRestaurants(filtered);
+  await syncFleetToSupabase(filtered);
 
-  // Sync deletion to Supabase
-  if (target && SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes("your-project-id")) {
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/restaurants?id=eq.${target.id}`, {
-        method: "DELETE",
-        headers: getHeaders(),
-      });
-    } catch (err) {
-      console.error("Failed to sync restaurant delete to Supabase:", err);
+  // Remove custom menu from Supabase menu store
+  try {
+    const menus = await fetchCustomMenusFromSupabase();
+    if (target) {
+      delete menus[target.slug.toLowerCase()];
+      delete menus[target.id.toLowerCase()];
     }
+    delete menus[norm];
+    await syncCustomMenusToSupabase(menus);
+  } catch {
+    // Ignore
   }
 
-  return NextResponse.json({ success: true, message: "Restaurant removed successfully." });
-}
+  // Purge all operational records for this restaurant in Supabase
+  const targetId = target?.id || id;
+  if (SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes("your-project-id")) {
+    const headers = getHeaders();
+    await Promise.allSettled([
+      fetch(`${SUPABASE_URL}/rest/v1/orders?restaurant_id=eq.${targetId}`, {
+        method: "DELETE",
+        headers,
+      }),
+      fetch(`${SUPABASE_URL}/rest/v1/service_requests?restaurant_id=eq.${targetId}`, {
+        method: "DELETE",
+        headers,
+      }),
+      fetch(`${SUPABASE_URL}/rest/v1/menu_items?restaurant_id=eq.${targetId}`, {
+        method: "DELETE",
+        headers,
+      }),
+      fetch(`${SUPABASE_URL}/rest/v1/categories?restaurant_id=eq.${targetId}`, {
+        method: "DELETE",
+        headers,
+      }),
+      fetch(`${SUPABASE_URL}/rest/v1/restaurants?id=eq.${targetId}`, {
+        method: "DELETE",
+        headers,
+      }),
+    ]);
+  }
 
+  return NextResponse.json({
+    success: true,
+    restaurants: filtered,
+    message: "Restaurant and all associated data removed permanently.",
+  });
+}

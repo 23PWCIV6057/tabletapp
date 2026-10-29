@@ -117,14 +117,20 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
       setActiveTab("kitchen");
     }
 
-    // Live restaurant status check
+    // Live restaurant status & custom tenant config/menu check
     fetch(`/api/restaurants/${activeTenantSlug}/status`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.success && data.status) {
-          const suspended = data.status === "suspended";
+        if (data.success) {
+          const suspended = data.status === "suspended" || Boolean(data.deleted);
           setIsSuspended(suspended);
           setRestaurantSuspensionFlag(activeTenantSlug, data.id || "", suspended);
+          if (data.restaurant) {
+            setGeoConfig(restaurantToGeoConfig(data.restaurant));
+          }
+          if (Array.isArray(data.menu) && data.menu.length > 0) {
+            setMenu(data.menu);
+          }
         }
       })
       .catch(() => {});
@@ -396,6 +402,16 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
             const suspended = event.payload.status === "suspended";
             setIsSuspended(suspended);
             setRestaurantSuspensionFlag(activeTenantSlug, event.payload.restaurantId, suspended);
+          }
+          break;
+        }
+        case "RESTAURANT_DELETED": {
+          if (
+            event.payload.slug?.toLowerCase() === activeTenantSlug ||
+            event.payload.restaurantId === currentRestaurant?.id
+          ) {
+            setIsSuspended(true);
+            setRestaurantSuspensionFlag(activeTenantSlug, event.payload.restaurantId, true);
           }
           break;
         }
@@ -770,7 +786,7 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
               </h1>
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <span className="font-semibold text-slate-800">
-                  {geoConfig.restaurantName || "Sunshine Bistro"}
+                  {geoConfig.restaurantName || "Heat Box Pizza"}
                 </span>
                 <span aria-hidden="true">•</span>
                 <span className="font-semibold text-emerald-700 flex items-center gap-1.5">

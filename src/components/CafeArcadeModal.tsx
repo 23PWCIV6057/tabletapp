@@ -85,7 +85,7 @@ export default function CafeArcadeModal({
   const [playerName, setPlayerName] = useState("");
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
 
-  // Game 1: Bistro Reflex Rush state
+  // Game 1: Reflex Rush state
   const [reflexRunning, setReflexRunning] = useState(false);
   const [reflexTimeLeft, setReflexTimeLeft] = useState(30);
   const [reflexScore, setReflexScore] = useState(0);
@@ -302,7 +302,7 @@ export default function CafeArcadeModal({
             }`}
           >
             <SparklesIcon size={15} />
-            <span>1. Bistro Reflex Rush (Vs. Whole Café)</span>
+            <span>1. Reflex Rush (Vs. Whole Café)</span>
           </button>
 
           <button
@@ -331,7 +331,7 @@ export default function CafeArcadeModal({
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div>
                     <h3 className="font-display text-lg font-bold text-white">
-                      Bistro Reflex Rush
+                      Reflex Rush
                     </h3>
                     <p className="text-xs text-slate-400">
                       Tap lit dishes before they hop! Gold Chef Stars = +25 pts.
@@ -581,7 +581,7 @@ export default function CafeArcadeModal({
 
               <p className="mt-2 text-xs text-slate-400">
                 {activeGame === "reflex"
-                  ? "Top scores in Bistro Reflex Rush (30s)"
+                  ? "Top scores in Reflex Rush (30s)"
                   : "Longest win streaks against Chef AI Bot"}
               </p>
 
