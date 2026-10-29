@@ -79,7 +79,6 @@ export default function KitchenView({
 
   // Thermal Receipt Printer States
   const [printerConnected, setPrinterConnected] = useState(() => isThermalPrinterConnected());
-  const [autoPrintOnAccept, setAutoPrintOnAccept] = useState(true);
   const [printingSlip, setPrintingSlip] = useState<{
     order: OrderCard;
     mode: "kot" | "bill";
@@ -204,20 +203,6 @@ export default function KitchenView({
           >
             <PrinterIcon size={15} />
             <span>{printerConnected ? "Printer Ready (USB)" : "Connect Printer"}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setAutoPrintOnAccept((v) => !v)}
-            aria-pressed={autoPrintOnAccept}
-            className={`inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-bold transition ${
-              autoPrintOnAccept
-                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                : "bg-slate-800 text-slate-400 border border-slate-700"
-            }`}
-            title="Automatically print Kitchen Order Ticket when clicking Start Preparing"
-          >
-            <span>Auto-KOT: {autoPrintOnAccept ? "ON" : "OFF"}</span>
           </button>
 
           {/* Audio Chime Controls */}
@@ -684,37 +669,65 @@ export default function KitchenView({
                     </div>
                   </div>
 
-                  {/* Action Bar (Bumping tickets + 1-Click Thermal Receipt Printing) */}
-                  <div className="mt-5 border-t border-slate-100 pt-3.5 space-y-2.5">
+                  {/* Action Bar (Bumping tickets + Reject + 1-Click Receipt Printing) */}
+                  <div className="mt-5 border-t border-slate-100 pt-3.5 space-y-2">
                     {order.status === "New" && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onUpdateOrderStatus(order.id, "Preparing");
-                          if (autoPrintOnAccept) {
-                            handlePrintTicket(order, "kot");
-                          }
-                        }}
-                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-amber-500 py-2.5 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-400 active:scale-95"
-                      >
-                        <ChefHatIcon size={16} />
-                        <span>
-                          {autoPrintOnAccept
-                            ? "Accept & Print Kitchen Ticket"
-                            : "Start Preparing"}
-                        </span>
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onUpdateOrderStatus(order.id, "Preparing")}
+                          className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-amber-500 px-3 py-2.5 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-400 active:scale-95"
+                        >
+                          <ChefHatIcon size={16} />
+                          <span>Accept &amp; Prepare</span>
+                        </button>
+
+                        {onRejectOrder && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onRejectOrder(
+                                order.id,
+                                "Table was vacant or unverified by waiter"
+                              )
+                            }
+                            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-100 active:scale-95 transition"
+                            title="Reject order if table is empty"
+                          >
+                            <XIcon size={14} />
+                            <span>Reject</span>
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {order.status === "Preparing" && (
-                      <button
-                        type="button"
-                        onClick={() => onUpdateOrderStatus(order.id, "Ready")}
-                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-blue-500 active:scale-95"
-                      >
-                        <BellIcon size={16} />
-                        <span>Mark Ready to Serve</span>
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onUpdateOrderStatus(order.id, "Ready")}
+                          className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-3 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-blue-500 active:scale-95"
+                        >
+                          <BellIcon size={16} />
+                          <span>Mark Ready to Serve</span>
+                        </button>
+
+                        {onRejectOrder && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onRejectOrder(
+                                order.id,
+                                "Order cancelled / table empty"
+                              )
+                            }
+                            className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition"
+                            title="Cancel / Reject order"
+                          >
+                            Reject
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {order.status === "Ready" && (
@@ -749,28 +762,16 @@ export default function KitchenView({
                       </div>
                     )}
 
-                    {/* 1-Click Thermal Receipt & KOT Buttons */}
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handlePrintTicket(order, "kot")}
-                        className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition"
-                        title="Print Kitchen Order Ticket (KOT)"
-                      >
-                        <PrinterIcon size={13} />
-                        <span>Print KOT</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePrintTicket(order, "bill")}
-                        className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950 hover:bg-amber-100 transition"
-                        title="Print Customer Table Bill Receipt"
-                      >
-                        <PrinterIcon size={13} />
-                        <span>Print Bill ({formatPrice(order.total, currency)})</span>
-                      </button>
-                    </div>
+                    {/* Single 1-Click Thermal Receipt Print Button */}
+                    <button
+                      type="button"
+                      onClick={() => handlePrintTicket(order, "bill")}
+                      className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 hover:bg-amber-50 hover:border-amber-300 transition"
+                      title="Print 80mm Customer & Kitchen Receipt"
+                    >
+                      <PrinterIcon size={14} className="text-amber-700" />
+                      <span>Print Receipt ({formatPrice(order.total, currency)})</span>
+                    </button>
                   </div>
                 </div>
               );
