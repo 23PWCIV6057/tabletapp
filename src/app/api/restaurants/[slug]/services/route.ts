@@ -154,6 +154,28 @@ export async function POST(
       created_at: new Date().toISOString(),
     };
 
+    const existingRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/service_requests?id=eq.${encodeURIComponent(reqId)}&restaurant_id=eq.${encodeURIComponent(restaurant.id)}&select=id&limit=1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (existingRes.ok) {
+      const existingRows = await existingRes.json();
+      if (Array.isArray(existingRows) && existingRows[0]) {
+        return NextResponse.json({
+          success: true,
+          duplicate: true,
+          request: {
+            id: reqId,
+            restaurantId: restaurant.id,
+            table: tableNumber,
+            type,
+            status: "Pending",
+            createdAt: Date.now(),
+          },
+        });
+      }
+    }
+
     const res = await fetch(`${SUPABASE_URL}/rest/v1/service_requests`, {
       method: "POST",
       headers: getHeaders(),
@@ -161,6 +183,20 @@ export async function POST(
     });
 
     if (!res.ok) {
+      if (res.status === 409) {
+        return NextResponse.json({
+          success: true,
+          duplicate: true,
+          request: {
+            id: reqId,
+            restaurantId: restaurant.id,
+            table: tableNumber,
+            type,
+            status: "Pending",
+            createdAt: Date.now(),
+          },
+        });
+      }
       const errText = await res.text();
       return NextResponse.json({ success: false, error: `Failed to insert request: ${errText}` }, { status: res.status });
     }

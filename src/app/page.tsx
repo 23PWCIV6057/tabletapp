@@ -114,6 +114,8 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const lastOrderFingerprintRef = useRef<{ value: string; at: number } | null>(null);
+  const lastServiceFingerprintRef = useRef<{ value: string; at: number } | null>(null);
 
   // Floor & Geo State
   const [tableSessions, setTableSessions] = useState<Record<number, TableSession>>({});
@@ -590,6 +592,18 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
       return;
     }
     const activeTable = tableNumber || 1;
+    const fingerprint = JSON.stringify({
+      table: activeTable,
+      items: items.map((item) => [item.itemId, item.quantity, item.selectedModifiers, item.specialInstructions]),
+    });
+    const now = Date.now();
+    if (
+      lastOrderFingerprintRef.current?.value === fingerprint &&
+      now - lastOrderFingerprintRef.current.at < 5000
+    ) {
+      return;
+    }
+    lastOrderFingerprintRef.current = { value: fingerprint, at: now };
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const serviceFee = getServiceFee(subtotal, geoConfig);
     const total = subtotal + serviceFee;
@@ -628,6 +642,15 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
       return;
     }
     const activeTable = tableNumber || 1;
+    const fingerprint = `${activeTable}:${type}`;
+    const now = Date.now();
+    if (
+      lastServiceFingerprintRef.current?.value === fingerprint &&
+      now - lastServiceFingerprintRef.current.at < 5000
+    ) {
+      return;
+    }
+    lastServiceFingerprintRef.current = { value: fingerprint, at: now };
     const newRequest: ServiceRequest = {
       id: `srv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       table: activeTable,
