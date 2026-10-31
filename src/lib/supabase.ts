@@ -184,7 +184,7 @@ export async function fetchServicesFromSupabase(restaurantId?: string): Promise<
     try {
       const slug = getBrowserRestaurantSlug();
       const token = getBrowserAuthToken();
-      if (!token) return [];
+      if (!token) return null;
       const res = await fetch(`/api/restaurants/${slug}/services`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
@@ -194,9 +194,9 @@ export async function fetchServicesFromSupabase(restaurantId?: string): Promise<
         if (body.success && Array.isArray(body.requests)) return body.requests;
       }
     } catch {
-      return [];
+      return null;
     }
-    return [];
+    return null;
   }
 
   if (!isSupabaseConfigured()) return null;
