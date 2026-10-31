@@ -105,6 +105,7 @@ export async function POST(
       String(body?.capabilityToken || "");
 
     const validTypes: ServiceType[] = [
+      "Water Refill",
       "Call Waiter",
       "Extra Napkins",
       "Sauces & Condiments",
