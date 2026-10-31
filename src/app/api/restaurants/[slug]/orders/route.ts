@@ -71,7 +71,7 @@ export async function GET(
 
     // Scoped Query to Supabase via server credentials
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/orders?restaurant_id=eq.${restaurant.id}&select=*&order=created_at.desc&limit=100`,
+      `${SUPABASE_URL}/rest/v1/orders?restaurant_id=eq.${restaurant.id}&select=*,order_items(*)&order=created_at.desc&limit=100`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -87,11 +87,18 @@ export async function GET(
     const orders: OrderCard[] = data.map((row: any) => {
       let items = [];
       try {
-        items = Array.isArray(row.items)
-          ? row.items
-          : typeof row.items === "string"
-            ? JSON.parse(row.items)
-            : [];
+        items = Array.isArray(row.order_items)
+          ? row.order_items.map((item: any) => ({
+              itemId: item.menu_item_id,
+              name: item.name,
+              basePrice: Number(item.unit_price),
+              selectedModifiers: item.selected_modifiers || [],
+              quantity: Number(item.quantity),
+              unitPrice: Number(item.unit_price),
+              totalPrice: Number(item.total_price),
+              specialInstructions: item.special_instructions || undefined,
+            }))
+          : [];
       } catch {
         items = [];
       }
@@ -106,8 +113,8 @@ export async function GET(
         serviceFee: Number(row.service_fee) || 0,
         total: Number(row.total) || 0,
         status: (row.status as OrderStatus) || "New",
-        createdAt: Number(row.created_at) || Date.now(),
-        updatedAt: Number(row.updated_at) || Number(row.created_at) || Date.now(),
+        createdAt: typeof row.created_at === "number" ? row.created_at : Date.parse(row.created_at) || Date.now(),
+        updatedAt: typeof row.updated_at === "number" ? row.updated_at : Date.parse(row.updated_at) || Date.now(),
       };
     });
 
@@ -256,7 +263,10 @@ export async function POST(
     const serverTotal = serverSubtotal + serverServiceFee;
 
     // Server-generated identifiers & metadata (Directive 2)
-    const serverOrderId = crypto.randomUUID();
+    const clientOrderId = typeof body?.id === "string" && /^ord_[a-zA-Z0-9_-]{8,80}$/.test(body.id)
+      ? body.id
+      : null;
+    const serverOrderId = clientOrderId || crypto.randomUUID();
     const serverOrderNumber = String(Math.floor(1000 + Math.random() * 9000));
     const now = Date.now();
 
@@ -285,13 +295,12 @@ export async function POST(
       order_number: serverOrderNumber,
       restaurant_id: restaurant.id,
       table_number: tableNumber,
-      items: JSON.stringify(validatedItems),
       subtotal: serverSubtotal,
       service_fee: serverServiceFee,
       total: serverTotal,
       status: "New",
-      created_at: now,
-      updated_at: now,
+      created_at: new Date(now).toISOString(),
+      updated_at: new Date(now).toISOString(),
     };
 
     const res = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
@@ -306,6 +315,37 @@ export async function POST(
         { success: false, error: `Failed to insert order: ${errText}` },
         { status: res.status }
       );
+    }
+
+    if (validatedItems.length > 0) {
+      const itemsRes = await fetch(`${SUPABASE_URL}/rest/v1/order_items`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify(
+          validatedItems.map((item) => ({
+            order_id: serverOrderId,
+            menu_item_id: item.itemId,
+            name: item.name,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            total_price: item.totalPrice,
+            selected_modifiers: item.selectedModifiers,
+            special_instructions: item.specialInstructions || null,
+          }))
+        ),
+      });
+
+      if (!itemsRes.ok) {
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/orders?id=eq.${encodeURIComponent(serverOrderId)}&restaurant_id=eq.${encodeURIComponent(restaurant.id)}`,
+          { method: "DELETE", headers: getHeaders() }
+        );
+        const errText = await itemsRes.text();
+        return NextResponse.json(
+          { success: false, error: `Failed to persist order items: ${errText}` },
+          { status: 502 }
+        );
+      }
     }
 
     return NextResponse.json({

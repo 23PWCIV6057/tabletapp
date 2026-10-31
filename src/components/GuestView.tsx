@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { GeoFenceConfig, MenuItem, OrderCard, OrderItem, ServiceType } from "@/types";
 import { formatPrice, getServiceFee, verifyUserWithinRestaurant } from "@/lib/geo";
@@ -115,6 +115,7 @@ export default function GuestView({
   // Service cooldown timer (60s anti-spam)
   const [serviceCooldown, setServiceCooldown] = useState<number>(0);
   const [serviceToast, setServiceToast] = useState<string | null>(null);
+  const checkoutInFlightRef = useRef(false);
 
   useEffect(() => {
     if (serviceCooldown <= 0) return;
@@ -123,6 +124,10 @@ export default function GuestView({
     }, 1000);
     return () => clearInterval(interval);
   }, [serviceCooldown]);
+
+  useEffect(() => {
+    if (cart.length === 0) checkoutInFlightRef.current = false;
+  }, [cart.length]);
 
   const categories = useMemo(() => {
     const unique = Array.from(new Set(menu.map((item) => item.category)));
@@ -209,7 +214,8 @@ export default function GuestView({
 
   // Checkout with 3-Mode Anti-Prank Guard (Dine-In Code | Smart GPS + Fallback | KDS Only)
   const handleCheckout = async () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || checkoutInFlightRef.current) return;
+    checkoutInFlightRef.current = true;
 
     const alreadyVerifiedCode =
       typeof window !== "undefined" &&

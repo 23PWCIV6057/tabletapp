@@ -5,11 +5,7 @@ import { isRequestDevAuthenticated } from "@/lib/devAuth";
 import { OrderStatus } from "@/types";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  "";
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 function getHeaders() {
   return {
@@ -64,7 +60,7 @@ export async function PATCH(
     }
 
     // Verify order belongs to this tenant and apply update
-    const updatePayload: Record<string, any> = { updated_at: Date.now() };
+    const updatePayload: Record<string, any> = { updated_at: new Date().toISOString() };
     if (newStatus) updatePayload.status = newStatus;
     if (newTable) updatePayload.table_number = newTable;
 
