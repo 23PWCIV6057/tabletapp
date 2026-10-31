@@ -49,7 +49,10 @@ export async function GET(
     }
 
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-      return NextResponse.json({ success: true, requests: [] });
+      return NextResponse.json(
+        { success: false, error: "Service request database is not configured." },
+        { status: 503 }
+      );
     }
 
     const res = await fetch(
@@ -58,7 +61,11 @@ export async function GET(
     );
 
     if (!res.ok) {
-      return NextResponse.json({ success: true, requests: [] });
+      const errorText = await res.text();
+      return NextResponse.json(
+        { success: false, error: "Unable to load service requests from the database.", details: errorText },
+        { status: 502 }
+      );
     }
 
     const data = await res.json();

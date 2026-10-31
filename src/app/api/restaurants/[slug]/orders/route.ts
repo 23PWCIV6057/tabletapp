@@ -66,7 +66,10 @@ export async function GET(
     }
 
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-      return NextResponse.json({ success: false, orders: [] });
+      return NextResponse.json(
+        { success: false, error: "Order database is not configured." },
+        { status: 503 }
+      );
     }
 
     // Scoped Query to Supabase via server credentials
@@ -76,7 +79,11 @@ export async function GET(
     );
 
     if (!res.ok) {
-      return NextResponse.json({ success: false, orders: [] });
+      const errorText = await res.text();
+      return NextResponse.json(
+        { success: false, error: "Unable to load orders from the database.", details: errorText },
+        { status: 502 }
+      );
     }
 
     const data = await res.json();
