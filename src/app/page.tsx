@@ -64,6 +64,7 @@ import {
   syncLeaderboardToSupabase,
   syncOrderToSupabase,
   syncServiceRequestToSupabase,
+  syncTableSession,
 } from "@/lib/supabase";
 import {
   CheckCircleIcon,
@@ -577,6 +578,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
       type: "TABLE_STATUS_CHANGED",
       payload: { tableNumber: table, status, seatedAt: updated.seatedAt },
     });
+    syncTableSession(table, status, updated.seatedAt);
   };
 
   const handlePlaceOrder = (
