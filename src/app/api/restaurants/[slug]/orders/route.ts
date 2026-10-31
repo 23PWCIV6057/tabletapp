@@ -318,13 +318,23 @@ export async function POST(
     }
 
     if (validatedItems.length > 0) {
+      const itemIds = validatedItems.map((item) => item.itemId);
+      const menuLookup = await fetch(
+        `${SUPABASE_URL}/rest/v1/menu_items?id=in.(${itemIds.join(",")})&select=id`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      const menuRows = menuLookup.ok ? await menuLookup.json() : [];
+      const persistedMenuIds = new Set(
+        Array.isArray(menuRows) ? menuRows.map((row: { id?: number }) => Number(row.id)) : []
+      );
+
       const itemsRes = await fetch(`${SUPABASE_URL}/rest/v1/order_items`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify(
           validatedItems.map((item) => ({
             order_id: serverOrderId,
-            menu_item_id: item.itemId,
+            menu_item_id: persistedMenuIds.has(item.itemId) ? item.itemId : null,
             name: item.name,
             quantity: item.quantity,
             unit_price: item.unitPrice,
