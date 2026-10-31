@@ -1,23 +1,75 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { fetchFleetFromSupabase, findRestaurantBySlugOrKey, INITIAL_RESTAURANTS, isRestaurantSuspended } from "@/lib/restaurants";
+import { signSessionToken } from "@/lib/serverAuth";
 
-const DEFAULT_STAFF_PIN = process.env.STAFF_PIN || "1234";
-const DEFAULT_OWNER_PIN = process.env.OWNER_PIN || "8888";
-const TOKEN_SECRET = process.env.AUTH_SECRET || "tabletapp_default_hmac_secret_2026";
+// In-memory rate limiting against brute force PIN attacks (Finding SEC-002)
+// Max 5 attempts per IP per 10 minutes
+const pinAttempts = new Map<string, { count: number; lockedUntil: number }>();
 
-function safeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+function checkPinRateLimit(clientIp: string): { allowed: boolean; remainingSeconds?: number } {
+  const now = Date.now();
+  const entry = pinAttempts.get(clientIp);
+
+  if (entry && entry.lockedUntil > now) {
+    return {
+      allowed: false,
+      remainingSeconds: Math.ceil((entry.lockedUntil - now) / 1000),
+    };
+  }
+
+  if (entry && entry.lockedUntil <= now) {
+    pinAttempts.delete(clientIp);
+  }
+
+  return { allowed: true };
 }
 
-function signSessionToken(role: "kitchen" | "owner", restaurantId: string, unlockedAt: number): string {
-  const payload = `${restaurantId}:${role}:${unlockedAt}`;
-  const sig = crypto.createHmac("sha256", TOKEN_SECRET).update(payload).digest("hex");
-  return `${payload}:${sig}`;
+function recordFailedPinAttempt(clientIp: string) {
+  const now = Date.now();
+  const entry = pinAttempts.get(clientIp) || { count: 0, lockedUntil: 0 };
+  entry.count += 1;
+
+  if (entry.count >= 5) {
+    entry.lockedUntil = now + 10 * 60 * 1000; // 10-minute lockout
+  }
+
+  pinAttempts.set(clientIp, entry);
+}
+
+function resetPinAttempts(clientIp: string) {
+  pinAttempts.delete(clientIp);
+}
+
+function safeCompare(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b || typeof a !== "string" || typeof b !== "string") return false;
+  const bufA = Buffer.from(a.trim());
+  const bufB = Buffer.from(b.trim());
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA); // Constant time dummy to avoid timing leaks
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 export async function POST(req: NextRequest) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("x-real-ip") ||
+    "127.0.0.1";
+
+  // 1. Rate-limit check against brute force (Finding SEC-002)
+  const rate = checkPinRateLimit(ip);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Too many failed attempts. PIN access locked for ${rate.remainingSeconds}s.`,
+      },
+      { status: 429 }
+    );
+  }
+
   try {
     const body = await req.json();
     const pin = typeof body?.pin === "string" ? body.pin.trim() : "";
@@ -41,15 +93,24 @@ export async function POST(req: NextRequest) {
         { status: 403 }
       );
     }
-    const targetOwnerPin = matchedRestaurant?.ownerPin || DEFAULT_OWNER_PIN;
-    const targetStaffPin = matchedRestaurant?.staffPin || DEFAULT_STAFF_PIN;
+
+    // Server-only PIN resolution (Finding SEC-002: no hardcoded fallbacks to 1234/8888)
+    const targetOwnerPin = matchedRestaurant?.ownerPin || process.env.OWNER_PIN;
+    const targetStaffPin = matchedRestaurant?.staffPin || process.env.STAFF_PIN;
     const tenantId = matchedRestaurant?.id || "global";
 
     const isOwnerMatch = safeCompare(pin, targetOwnerPin);
     const isStaffMatch = safeCompare(pin, targetStaffPin);
 
     if (requestedRole === "owner") {
+      if (!targetOwnerPin) {
+        return NextResponse.json(
+          { success: false, error: "Manager PIN is not configured on this server. Contact administrator." },
+          { status: 500 }
+        );
+      }
       if (isOwnerMatch) {
+        resetPinAttempts(ip);
         const unlockedAt = Date.now();
         return NextResponse.json({
           success: true,
@@ -59,32 +120,41 @@ export async function POST(req: NextRequest) {
           sessionToken: signSessionToken("owner", tenantId, unlockedAt),
         });
       }
+      recordFailedPinAttempt(ip);
       return NextResponse.json(
         { success: false, error: "Invalid Manager PIN." },
         { status: 401 }
       );
     }
 
-    // Kitchen role: either Staff PIN or Manager PIN unlocks KDS
+    // Kitchen Staff Role Check
+    if (!targetStaffPin) {
+      return NextResponse.json(
+        { success: false, error: "Staff PIN is not configured on this server. Contact administrator." },
+        { status: 500 }
+      );
+    }
+
     if (isStaffMatch || isOwnerMatch) {
-      const resolvedRole = isOwnerMatch ? "owner" : "kitchen";
+      resetPinAttempts(ip);
       const unlockedAt = Date.now();
       return NextResponse.json({
         success: true,
-        role: resolvedRole,
+        role: "kitchen",
         restaurantId: tenantId,
         unlockedAt,
-        sessionToken: signSessionToken(resolvedRole, tenantId, unlockedAt),
+        sessionToken: signSessionToken("kitchen", tenantId, unlockedAt),
       });
     }
 
+    recordFailedPinAttempt(ip);
     return NextResponse.json(
       { success: false, error: "Invalid Staff PIN." },
       { status: 401 }
     );
-  } catch {
+  } catch (error: any) {
     return NextResponse.json(
-      { success: false, error: "Authentication request failed." },
+      { success: false, error: error?.message || "Internal server error" },
       { status: 500 }
     );
   }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AntiPrankMode, CurrencyCode, GeoFenceConfig, MenuCategory, MenuItem, OrderCard, ServiceRequest } from "@/types";
 import { getTokenForTable, rotateTokenForTable } from "@/lib/tables";
-import { calculateDistanceMeters, DEFAULT_GEO_CONFIG, formatPrice } from "@/lib/geo";
+import { calculateDistanceMeters, DEFAULT_GEO_CONFIG, formatPrice, saveStoredLeaderboard } from "@/lib/geo";
 import {
   CheckCircleIcon,
   LockIcon,
@@ -11,9 +11,13 @@ import {
   PrinterIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
+  TrashIcon,
+  TrophyIcon,
   XIcon,
 } from "./Icons";
 import QRCodeView from "./QRCodeView";
+import { isSupabaseConfigured, resetLeaderboardInSupabase } from "@/lib/supabase";
+import { broadcastSyncEvent } from "@/lib/sync";
 
 interface OwnerViewProps {
   menu: MenuItem[];
@@ -66,6 +70,31 @@ export default function OwnerView({
   const restaurantName = geoForm.restaurantName || geoConfig.restaurantName || "TableTapp";
   const currentToken = getTokenForTable(selectedTableForQr);
   const currentQrUrl = `${domainUrl.replace(/\/$/, "")}/t/${currentToken}`;
+
+  const [isResettingLeaderboard, setIsResettingLeaderboard] = useState(false);
+
+  const handleResetLeaderboard = async () => {
+    if (
+      !confirm(
+        `Are you sure you want to reset the Café Arcade leaderboard to zero for ${restaurantName}? All high scores will be wiped across all devices and Supabase.`
+      )
+    ) {
+      return;
+    }
+    setIsResettingLeaderboard(true);
+    try {
+      saveStoredLeaderboard([]);
+      broadcastSyncEvent({ type: "LEADERBOARD_UPDATED", payload: [] });
+      if (isSupabaseConfigured()) {
+        await resetLeaderboardInSupabase(geoConfig.id);
+      }
+      alert(`Leaderboard has been reset to zero for ${restaurantName}.`);
+    } catch {
+      alert("Failed to reset leaderboard in cloud database.");
+    } finally {
+      setIsResettingLeaderboard(false);
+    }
+  };
 
   const handleRotateToken = () => {
     if (
@@ -775,15 +804,6 @@ export default function OwnerView({
                 <span className="font-mono text-xs">{currentToken}</span>
               </div>
             </div>
-
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-950">
-              <p className="font-bold">Production Deployment Tip:</p>
-              <p className="mt-1 leading-relaxed">
-                When deploying live on Vercel, set your Vercel URL above (e.g.{" "}
-                <code className="font-mono">https://tabletapp-xxx.vercel.app</code>) and print
-                your batch of table stands.
-              </p>
-            </div>
           </div>
         </div>
       )}
@@ -934,7 +954,7 @@ export default function OwnerView({
                   <input
                     id="wifi-pass-input"
                     type="text"
-                    value={geoForm.wifiPassword ?? "heatbox123"}
+                    value={geoForm.wifiPassword ?? ""}
                     onChange={(e) => setGeoForm({ ...geoForm, wifiPassword: e.target.value })}
                     placeholder="e.g. heatbox123"
                     className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-mono text-slate-900 focus:border-amber-500"
@@ -1174,6 +1194,30 @@ export default function OwnerView({
                 )}
               </div>
             )}
+
+                        {/* Section 4: Café Arcade High-Score Leaderboard */}
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 sm:p-5 space-y-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-amber-950 flex items-center gap-2">
+                    <TrophyIcon size={15} className="text-amber-700" />
+                    <span>4. Café Arcade High-Score Leaderboard</span>
+                  </h4>
+                  <p className="mt-1 text-xs text-amber-900 leading-relaxed">
+                    Clear and reset the high-score champion board to zero for {restaurantName}. Wipes scores across all dining tables and Supabase.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={isResettingLeaderboard}
+                  onClick={handleResetLeaderboard}
+                  className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border border-rose-300 bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 transition shadow-sm"
+                >
+                  <TrashIcon size={14} />
+                  <span>{isResettingLeaderboard ? "Resetting..." : "Reset Leaderboard to Zero"}</span>
+                </button>
+              </div>
+            </div>
 
             <div className="border-t border-slate-100 pt-4">
               <button

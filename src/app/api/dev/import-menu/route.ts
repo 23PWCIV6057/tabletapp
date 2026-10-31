@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isRequestDevAuthenticated } from "@/lib/devAuth";
-import * as XLSX from "xlsx";
 import { MenuItem, ModifierGroup } from "@/types";
 
 export async function GET(req: NextRequest) {
@@ -20,6 +19,69 @@ Drinks,Fresh Mint Lemonade,250,Cold pressed fresh lemons with mint and crushed i
   });
 }
 
+// RFC 4180 Native CSV Parser: Replaces vulnerable SheetJS/xlsx dependency (Directive 7)
+function parseCsv(text: string): Record<string, string>[] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (c === '"') {
+        if (next === '"') {
+          currentField += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        currentField += c;
+      }
+    } else {
+      if (c === '"') {
+        inQuotes = true;
+      } else if (c === ",") {
+        currentRow.push(currentField.trim());
+        currentField = "";
+      } else if (c === "\r") {
+        // ignore CR
+      } else if (c === "\n") {
+        currentRow.push(currentField.trim());
+        if (currentRow.some((f) => f.length > 0)) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+        currentField = "";
+      } else {
+        currentField += c;
+      }
+    }
+  }
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField.trim());
+    if (currentRow.some((f) => f.length > 0)) {
+      rows.push(currentRow);
+    }
+  }
+
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((h) => h.trim());
+  return rows.slice(1).map((row) => {
+    const obj: Record<string, string> = {};
+    headers.forEach((h, idx) => {
+      // Safe assignment without prototype pollution
+      if (h !== "__proto__" && h !== "constructor" && h !== "prototype") {
+        obj[h] = row[idx] || "";
+      }
+    });
+    return obj;
+  });
+}
+
 export async function POST(req: NextRequest) {
   if (!isRequestDevAuthenticated(req)) {
     return NextResponse.json({ success: false, error: "Unauthorized access." }, { status: 401 });
@@ -33,18 +95,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "No file uploaded." }, { status: 400 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const workbook = XLSX.read(buffer, { type: "buffer" });
-    const firstSheetName = workbook.SheetNames[0];
-    if (!firstSheetName) {
-      return NextResponse.json({ success: false, error: "Spreadsheet contains no sheets." }, { status: 400 });
-    }
-
-    const worksheet = workbook.Sheets[firstSheetName];
-    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" });
+    const text = await file.text();
+    const rawRows = parseCsv(text);
 
     if (!rawRows || rawRows.length === 0) {
-      return NextResponse.json({ success: false, error: "Spreadsheet sheet is empty." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Spreadsheet/CSV contains no data rows or header format is invalid." },
+        { status: 400 }
+      );
     }
 
     const parsedItems: MenuItem[] = [];
@@ -167,7 +225,7 @@ export async function POST(req: NextRequest) {
       items: parsedItems,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to parse spreadsheet file.";
+    const message = err instanceof Error ? err.message : "Failed to parse CSV file.";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

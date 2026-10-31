@@ -69,6 +69,7 @@ import {
   CheckCircleIcon,
   CopyIcon,
   GamepadIcon,
+  InstagramIcon,
   LockIcon,
   MapPinIcon,
   QrCodeIcon,
@@ -228,7 +229,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
           }
         }
       });
-      fetchLeaderboardFromSupabase().then((cloudLb) => {
+      fetchLeaderboardFromSupabase(currentRestaurant?.id).then((cloudLb) => {
         if (cloudLb && cloudLb.length > 0) {
           setLeaderboard(cloudLb);
           saveStoredLeaderboard(cloudLb);
@@ -304,7 +305,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
             });
           }
 
-          const cloudLb = await fetchLeaderboardFromSupabase();
+          const cloudLb = await fetchLeaderboardFromSupabase(currentRestaurant?.id);
           if (cloudLb && cloudLb.length > 0) {
             setLeaderboard((prev) => {
               if (JSON.stringify(prev) !== JSON.stringify(cloudLb)) {
@@ -557,7 +558,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
     setLeaderboard(next);
     saveStoredLeaderboard(next);
     broadcastSyncEvent({ type: "LEADERBOARD_UPDATED", payload: next });
-    syncLeaderboardToSupabase(next);
+    syncLeaderboardToSupabase(next, currentRestaurant?.id);
   };
 
   const handleCopyWifiPassword = () => {
@@ -710,15 +711,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                   <span>{geoConfig.tagline || "Direct Kitchen Ordering"}</span>
                 </span>
-                {geoConfig.enabled && (
-                  <>
-                    <span aria-hidden="true">•</span>
-                    <span className="inline-flex items-center gap-1 font-medium text-amber-800">
-                      <MapPinIcon size={13} />
-                      <span>On-Premises Verified</span>
-                    </span>
-                  </>
-                )}
+
               </div>
             </div>
           </div>
@@ -864,10 +857,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
                   <h3 className="font-display mt-5 text-2xl font-bold text-slate-900">
                     Free Café Wi-Fi
                   </h3>
-                  <p className="mt-2 text-xs text-slate-600 leading-relaxed">
-                    View {restaurantName}&apos;s complimentary guest Wi-Fi network name, copy
-                    the password in one tap, or scan the instant Wi-Fi QR code.
-                  </p>
+
                 </div>
 
                 <button
@@ -888,7 +878,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
                       <GamepadIcon size={26} />
                     </span>
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
-                      Live Multiplayer Leaderboard
+                      Multiplayer Leaderboard
                     </span>
                   </div>
 
@@ -940,7 +930,13 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {topChampions.map((champ, idx) => (
+                {topChampions.length === 0 ? (
+                  <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-xs text-slate-500">
+                    <p className="font-bold text-slate-700">No champions on the leaderboard yet!</p>
+                    <p className="mt-1">Play Reflex Rush or Beat the Chef to be the first name on the board.</p>
+                  </div>
+                ) : (
+                  topChampions.map((champ, idx) => (
                   <div
                     key={champ.id}
                     className={`flex items-center justify-between rounded-2xl border p-4 ${
@@ -974,15 +970,33 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
                       {champ.score} {champ.game === "reflex" ? "pts" : "wins"}
                     </span>
                   </div>
-                ))}
+                ))
+                )}
               </div>
             </section>
 
             <footer className="border-t border-slate-200/80 pt-6 text-center">
-              <p className="text-xs text-slate-500">
-                {restaurantName} • Powered by TableTapp Dining
+              <p className="text-xs font-semibold text-slate-600">
+                {restaurantName}
               </p>
-              <div className="mt-2 flex items-center justify-center">
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
+                <span>Made by <strong className="font-semibold text-slate-800">Maaz Khan</strong></span>
+                <span aria-hidden="true">•</span>
+                <a
+                  href="https://instagram.com/maghaz._.khan"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-pink-600 transition"
+                  title="Contact on Instagram for suggestions, queries or issues"
+                >
+                  <InstagramIcon size={14} className="text-pink-600" />
+                  <span>@maghaz._.khan</span>
+                </a>
+              </div>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                For any suggestions, queries or issues
+              </p>
+              <div className="mt-3 flex items-center justify-center">
                 <Link
                   href={restaurantSlug ? `/r/${restaurantSlug}/staff` : "/staff"}
                   className="inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"

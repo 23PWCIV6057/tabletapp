@@ -126,6 +126,7 @@ export type CurrencyCode = "PKR" | "USD";
 // Café Arcade Live Leaderboard Entry
 export type LeaderboardEntry = {
   id: string;
+  restaurantId?: string;
   playerName: string;
   tableNumber?: number | null;
   game: "reflex" | "bot_streak";
@@ -135,6 +136,7 @@ export type LeaderboardEntry = {
 
 // Restaurant Branding, Currency, Wi-Fi, Arcade & Anti-Tamper Configuration
 export type GeoFenceConfig = {
+  id?: string;
   enabled: boolean;
   latitude: number;
   longitude: number;

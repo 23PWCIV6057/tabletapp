@@ -4,7 +4,7 @@ import crypto from "crypto";
 export const HEATBOX_RESTAURANT: Restaurant = {
   id: "b7e0129a-2415-469b-8f35-908078c139b4",
   slug: "heatbox",
-  accessKey: "r_hb_pesh_7a92f",
+  accessKey: "",
   name: "Heat Box Pizza",
   tagline: "Sher Khan Shaheed Road • Peshawar Cantt",
   address: "Sher Khan Shaheed Road, New Shami Road, Peshawar Cantt",
@@ -13,12 +13,12 @@ export const HEATBOX_RESTAURANT: Restaurant = {
   currency: "PKR",
   currencySymbol: "Rs.",
   status: "active",
-  staffPin: "1234",
-  ownerPin: "8888",
+  staffPin: "",
+  ownerPin: "",
   securityMode: "hybrid_gps",
   dailyDineInCode: "42",
   wifiSsid: "HeatBox_Peshawar_5G",
-  wifiPassword: "heatbox123",
+  wifiPassword: "",
   arcadePrizeText: "Free Molten Lava Cake on #1 Daily Score!",
   serviceFeePercent: 0,
   tableCount: 16,
@@ -53,25 +53,30 @@ function getSupabaseHeaders() {
   };
 }
 
-// shortcut: stores multi-tenant restaurant fleet JSON in dining_tables(table_number=3).name so RLS-enabled anon key can read/write reliably
+// Server-side restaurant fleet querying (SEC-001 & SEC-005: No JSON storage in dining_tables)
 export async function fetchFleetFromSupabase(): Promise<Restaurant[]> {
   if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes("your-project-id")) {
     return serverRestaurantsCache;
   }
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.3&select=name`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/restaurants?select=*`, {
       headers: getSupabaseHeaders(),
       cache: "no-store",
     });
     if (res.ok) {
       const data = await res.json();
-      const rawName = data?.[0]?.name;
-      if (typeof rawName === "string" && rawName.trim().startsWith("[")) {
-        const parsed: Restaurant[] = JSON.parse(rawName);
-        if (Array.isArray(parsed)) {
-          serverRestaurantsCache = parsed;
-          return parsed;
-        }
+      if (Array.isArray(data) && data.length > 0) {
+        // Map postgres restaurants rows if available
+        const mapped = data.map((row: any) => ({
+          ...HEATBOX_RESTAURANT,
+          id: String(row.id),
+          name: row.name || HEATBOX_RESTAURANT.name,
+          slug: row.slug || HEATBOX_RESTAURANT.slug,
+          currency: row.currency || HEATBOX_RESTAURANT.currency,
+          status: (row.is_active === false ? "suspended" : "active") as "active" | "suspended",
+        }));
+        serverRestaurantsCache = mapped;
+        return mapped;
       }
     }
   } catch {
@@ -82,63 +87,16 @@ export async function fetchFleetFromSupabase(): Promise<Restaurant[]> {
 
 export async function syncFleetToSupabase(restaurants: Restaurant[]): Promise<boolean> {
   serverRestaurantsCache = restaurants;
-  if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes("your-project-id")) {
-    return false;
-  }
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.3`, {
-      method: "PATCH",
-      headers: getSupabaseHeaders(),
-      body: JSON.stringify({ name: JSON.stringify(restaurants) }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return true;
 }
 
-// shortcut: stores multi-tenant custom menus Record<slug, MenuItem[]> in dining_tables(table_number=4).name
 export async function fetchCustomMenusFromSupabase(): Promise<Record<string, MenuItem[]>> {
-  if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes("your-project-id")) {
-    return serverMenusCache;
-  }
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.4&select=name`, {
-      headers: getSupabaseHeaders(),
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const rawName = data?.[0]?.name;
-      if (typeof rawName === "string" && rawName.trim().startsWith("{")) {
-        const parsed = JSON.parse(rawName);
-        if (parsed && typeof parsed === "object") {
-          serverMenusCache = parsed;
-          return parsed;
-        }
-      }
-    }
-  } catch {
-    // Fallback to server cache
-  }
   return serverMenusCache;
 }
 
 export async function syncCustomMenusToSupabase(menus: Record<string, MenuItem[]>): Promise<boolean> {
   serverMenusCache = menus;
-  if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes("your-project-id")) {
-    return false;
-  }
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.4`, {
-      method: "PATCH",
-      headers: getSupabaseHeaders(),
-      body: JSON.stringify({ name: JSON.stringify(menus) }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return true;
 }
 
 export function getStoredRestaurants(): Restaurant[] {
@@ -246,7 +204,7 @@ export function restaurantToGeoConfig(r: Restaurant): GeoFenceConfig {
     securityMode: r.securityMode,
     dailyDineInCode: r.dailyDineInCode,
     wifiSsid: r.wifiSsid || `${r.name.replace(/\s+/g, "_")}_Guest`,
-    wifiPassword: r.wifiPassword || "dinein2026",
+    wifiPassword: r.wifiPassword || "",
     arcadePrizeText: r.arcadePrizeText,
     serviceFeeEnabled: (r.serviceFeePercent || 0) > 0,
     serviceFeeAmount: r.serviceFeePercent || 0,

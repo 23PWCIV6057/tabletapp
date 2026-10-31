@@ -47,6 +47,21 @@ export async function POST(req: NextRequest) {
     }
 
     const accessKey = generateAccessKey(slug);
+    const staffPin = body.staffPin?.trim();
+    const ownerPin = body.ownerPin?.trim();
+    if (!staffPin || staffPin.length < 4) {
+      return NextResponse.json(
+        { success: false, error: "A unique, explicit staff PIN (minimum 4 digits) is required for new restaurant provisioning." },
+        { status: 400 }
+      );
+    }
+    if (!ownerPin || ownerPin.length < 4) {
+      return NextResponse.json(
+        { success: false, error: "A unique, explicit manager/owner PIN (minimum 4 digits) is required for new restaurant provisioning." },
+        { status: 400 }
+      );
+    }
+
     const newId = crypto.randomUUID ? crypto.randomUUID() : `rest_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     const newRestaurant: Restaurant = {
@@ -61,12 +76,12 @@ export async function POST(req: NextRequest) {
       currency: body.currency === "USD" ? "USD" : "PKR",
       currencySymbol: body.currency === "USD" ? "$" : "Rs.",
       status: "active",
-      staffPin: body.staffPin?.trim() || "1234",
-      ownerPin: body.ownerPin?.trim() || "8888",
+      staffPin,
+      ownerPin,
       securityMode: body.securityMode || "hybrid_gps",
-      dailyDineInCode: body.dailyDineInCode?.trim() || "42",
+      dailyDineInCode: body.dailyDineInCode?.trim() || "",
       wifiSsid: body.wifiSsid?.trim() || `${name.replace(/\s+/g, "_")}_Guest_WiFi`,
-      wifiPassword: body.wifiPassword?.trim() || "dinein2026",
+      wifiPassword: body.wifiPassword?.trim() || "",
       arcadePrizeText: body.arcadePrizeText?.trim() || "Win a Free Dessert or Drink on #1 Daily Score!",
       serviceFeePercent: Number(body.serviceFeePercent) || 0,
       tableCount: Math.min(64, Math.max(1, Number(body.tableCount) || 16)),

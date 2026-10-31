@@ -11,6 +11,7 @@ import {
   ClockIcon,
   DropletIcon,
   HandWaveIcon,
+  InstagramIcon,
   LockIcon,
   MapPinIcon,
   ReceiptIcon,
@@ -1093,10 +1094,27 @@ export default function GuestView({
 
       {/* Discrete Staff Portal Link in Footer */}
       <footer className="mt-16 border-t border-slate-200/80 pt-8 text-center">
-        <p className="text-xs text-slate-500">
-          {restaurantName} • Powered by TableTapp Dining
+        <p className="text-xs font-semibold text-slate-600">
+          {restaurantName}
         </p>
-        <div className="mt-2 flex items-center justify-center">
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
+          <span>Made by <strong className="font-semibold text-slate-800">Maaz Khan</strong></span>
+          <span aria-hidden="true">•</span>
+          <a
+            href="https://instagram.com/maghaz._.khan"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-pink-600 transition"
+            title="Contact on Instagram for suggestions, queries or issues"
+          >
+            <InstagramIcon size={14} className="text-pink-600" />
+            <span>@maghaz._.khan</span>
+          </a>
+        </div>
+        <p className="mt-0.5 text-[11px] text-slate-400">
+          For any suggestions, queries or issues
+        </p>
+        <div className="mt-3 flex items-center justify-center">
           <Link
             href="/staff"
             className="inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"

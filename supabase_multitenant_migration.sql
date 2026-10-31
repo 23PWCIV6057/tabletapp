@@ -24,12 +24,12 @@ ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS phone VARCHAR(40) DEFAUL
 ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'PKR';
 ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS currency_symbol VARCHAR(10) DEFAULT 'Rs.';
 ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
-ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS staff_pin VARCHAR(20) DEFAULT '1234';
-ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS owner_pin VARCHAR(20) DEFAULT '8888';
+ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS staff_pin VARCHAR(100);
+ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS owner_pin VARCHAR(100);
 ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS security_mode VARCHAR(20) DEFAULT 'hybrid_gps';
-ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS daily_dine_in_code VARCHAR(20) DEFAULT '42';
-ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS wifi_ssid VARCHAR(60) DEFAULT 'HeatBox_Free_WiFi';
-ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS wifi_password VARCHAR(60) DEFAULT 'heatbox123';
+ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS daily_dine_in_code VARCHAR(20);
+ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS wifi_ssid VARCHAR(60);
+ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS wifi_password VARCHAR(60);
 ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS arcade_prize_text VARCHAR(160) DEFAULT 'Free Molten Lava Cake on #1 Daily Score!';
 ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS service_fee_percent NUMERIC(5,2) DEFAULT 0;
 ALTER TABLE public.restaurants ADD COLUMN IF NOT EXISTS table_count INT DEFAULT 16;
@@ -85,12 +85,12 @@ BEGIN
             currency = 'PKR',
             currency_symbol = 'Rs.',
             status = 'active',
-            staff_pin = '1234',
-            owner_pin = '8888',
+            staff_pin = NULL,
+            owner_pin = NULL,
             security_mode = 'hybrid_gps',
-            daily_dine_in_code = '42',
+            daily_dine_in_code = NULL,
             wifi_ssid = 'HeatBox_Peshawar_5G',
-            wifi_password = 'heatbox123',
+            wifi_password = NULL,
             arcade_prize_text = 'Free Molten Lava Cake on #1 Daily Score!',
             table_count = 16,
             latitude = 34.0151,
@@ -134,12 +134,12 @@ BEGIN
             'PKR',
             'Rs.',
             'active',
-            '1234',
-            '8888',
+            NULL,
+            NULL,
             'hybrid_gps',
-            '42',
+            NULL,
             'HeatBox_Peshawar_5G',
-            'heatbox123',
+            NULL,
             'Free Molten Lava Cake on #1 Daily Score!',
             16,
             34.0151,

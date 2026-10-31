@@ -8,7 +8,7 @@ export const HEATBOX_GEO_PRESET: Partial<GeoFenceConfig> = {
   tagline: "Sher Khan Shaheed Road • Peshawar Cantt",
   currency: "PKR",
   wifiSsid: "HeatBox_Peshawar_5G",
-  wifiPassword: "heatbox123",
+  wifiPassword: "",
   arcadePrizeText: "Free Molten Lava Cake on #1 Daily Score!",
 };
 

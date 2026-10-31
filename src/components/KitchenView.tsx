@@ -34,7 +34,6 @@ import {
   CheckCircleIcon,
   ChefHatIcon,
   ClockIcon,
-  LockIcon,
   MapPinIcon,
   PrinterIcon,
   SparklesIcon,
@@ -56,6 +55,41 @@ interface KitchenViewProps {
   onLockSession: () => void;
 }
 
+type TableShape = "booth" | "rect" | "round" | "large";
+
+interface TableMeta {
+  num: number;
+  label: string;
+  zone: "window" | "main" | "patio";
+  zoneTitle: string;
+  shape: TableShape;
+  capacity: number;
+}
+
+const TABLE_METAS: TableMeta[] = [
+  // Zone 1: Window Bay Booths (1 - 4)
+  { num: 1, label: "T1", zone: "window", zoneTitle: "Window Bay", shape: "booth", capacity: 4 },
+  { num: 2, label: "T2", zone: "window", zoneTitle: "Window Bay", shape: "booth", capacity: 4 },
+  { num: 3, label: "T3", zone: "window", zoneTitle: "Window Bay", shape: "booth", capacity: 4 },
+  { num: 4, label: "T4", zone: "window", zoneTitle: "Window Bay", shape: "booth", capacity: 4 },
+
+  // Zone 2: Main Dining Floor (5 - 12)
+  { num: 5, label: "T5", zone: "main", zoneTitle: "Main Hall (2-Top)", shape: "rect", capacity: 2 },
+  { num: 6, label: "T6", zone: "main", zoneTitle: "Main Hall (2-Top)", shape: "rect", capacity: 2 },
+  { num: 7, label: "T7", zone: "main", zoneTitle: "Main Hall", shape: "rect", capacity: 4 },
+  { num: 8, label: "T8", zone: "main", zoneTitle: "Main Hall", shape: "rect", capacity: 4 },
+  { num: 9, label: "T9", zone: "main", zoneTitle: "Main Hall", shape: "rect", capacity: 4 },
+  { num: 10, label: "T10", zone: "main", zoneTitle: "Main Hall", shape: "rect", capacity: 4 },
+  { num: 11, label: "T11", zone: "main", zoneTitle: "Main Hall (Banquet)", shape: "large", capacity: 6 },
+  { num: 12, label: "T12", zone: "main", zoneTitle: "Main Hall (Banquet)", shape: "large", capacity: 6 },
+
+  // Zone 3: Garden Patio & Terrace (13 - 16)
+  { num: 13, label: "T13", zone: "patio", zoneTitle: "Garden Patio", shape: "round", capacity: 4 },
+  { num: 14, label: "T14", zone: "patio", zoneTitle: "Garden Patio", shape: "round", capacity: 4 },
+  { num: 15, label: "T15", zone: "patio", zoneTitle: "Garden Patio", shape: "round", capacity: 2 },
+  { num: 16, label: "T16", zone: "patio", zoneTitle: "Garden Patio", shape: "round", capacity: 2 },
+];
+
 export default function KitchenView({
   orders,
   serviceRequests,
@@ -76,6 +110,8 @@ export default function KitchenView({
   const [audioEnabled, setAudioEnabled] = useState(() => !isAudioMuted());
   const [transferringOrderId, setTransferringOrderId] = useState<string | null>(null);
   const [selectedFloorTable, setSelectedFloorTable] = useState<number | null>(null);
+  const [floorViewMode, setFloorViewMode] = useState<"map" | "grid">("map");
+  const [floorFilterStatus, setFloorFilterStatus] = useState<"ALL" | TableOccupancyStatus>("ALL");
 
   // Thermal Receipt Printer States
   const [printerConnected, setPrinterConnected] = useState(() => isThermalPrinterConnected());
@@ -135,7 +171,149 @@ export default function KitchenView({
   // Update timer every 10 seconds to keep elapsed minutes fresh
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 10000);
-    return () => clearInterval(timer);
+    const getDerivedTableStatus = (tableNum: number): TableOccupancyStatus => {
+    const hasBillRequest = serviceRequests.some(
+      (r) => r.table === tableNum && r.status === "Pending" && r.type === "Request Bill"
+    );
+    if (hasBillRequest) return "BILL_REQUESTED";
+
+    const hasActiveOrders = orders.some(
+      (o) =>
+        o.table === tableNum &&
+        (o.status === "New" || o.status === "Preparing" || o.status === "Ready")
+    );
+    if (hasActiveOrders) return "ACTIVE_ORDER";
+
+    const session = tableSessions[tableNum];
+    return session?.status || "VACANT";
+  };
+
+  const tableStatusCounts = {
+    ALL: 16,
+    VACANT: 0,
+    SEATED: 0,
+    ACTIVE_ORDER: 0,
+    BILL_REQUESTED: 0,
+  };
+  for (let i = 1; i <= 16; i++) {
+    const st = getDerivedTableStatus(i);
+    if (st in tableStatusCounts) {
+      tableStatusCounts[st as keyof typeof tableStatusCounts]++;
+    }
+  }
+
+  const renderTableMapCard = (meta: TableMeta, isCompact = false) => {
+    const num = meta.num;
+    const derivedStatus = getDerivedTableStatus(num);
+    const isSelected = selectedFloorTable === num;
+    const isFilteredOut = floorFilterStatus !== "ALL" && derivedStatus !== floorFilterStatus;
+
+    const activeOrderCount = orders.filter(
+      (o) => o.table === num && o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected"
+    ).length;
+
+    return (
+      <button
+        key={num}
+        type="button"
+        aria-label={`Table ${num} (${derivedStatus})`}
+        aria-pressed={isSelected}
+        onClick={() => setSelectedFloorTable(isSelected ? null : num)}
+        className={`group relative flex flex-col items-center justify-between rounded-2xl border transition-all duration-150 ${
+          isCompact ? "p-2 min-h-12" : "p-3 min-h-[96px]"
+        } ${
+          derivedStatus === "BILL_REQUESTED"
+            ? "border-purple-300 bg-purple-50/90 text-purple-950 shadow-xs ring-1 ring-purple-300/60"
+            : derivedStatus === "ACTIVE_ORDER"
+              ? "border-amber-300 bg-amber-50/90 text-amber-950 shadow-xs ring-1 ring-amber-300/60"
+              : derivedStatus === "SEATED"
+                ? "border-blue-300 bg-blue-50/90 text-blue-950 shadow-xs ring-1 ring-blue-300/60"
+                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50/80 shadow-xs"
+        } ${isSelected ? "scale-[1.03] ring-4 ring-amber-500 shadow-lg z-10" : "hover:scale-[1.02]"} ${
+          isFilteredOut ? "opacity-30 scale-95" : "opacity-100"
+        }`}
+      >
+        <div className="flex w-full items-center justify-between">
+          <span className="font-display tabular-nums text-sm font-black tracking-tight">
+            T{num}
+          </span>
+          <span className="text-[10px] font-bold text-slate-400 group-hover:text-slate-600">
+            {meta.capacity}p
+          </span>
+        </div>
+
+        {!isCompact && (
+          <div className="my-1.5 flex flex-col items-center">
+            {meta.shape === "booth" && (
+              <div className="flex flex-col items-center">
+                <div className="h-1.5 w-9 rounded-full bg-slate-300/80" />
+                <div className="my-0.5 h-4 w-7 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="h-1.5 w-9 rounded-full bg-slate-300/80" />
+              </div>
+            )}
+            {meta.shape === "round" && (
+              <div className="relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-slate-300 bg-slate-100">
+                <span className="h-2 w-2 rounded-full bg-slate-300" />
+              </div>
+            )}
+            {meta.shape === "rect" && (
+              <div className="flex flex-col items-center">
+                <div className="flex gap-2">
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                </div>
+                <div className="my-0.5 h-3.5 w-8 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="flex gap-2">
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                </div>
+              </div>
+            )}
+            {meta.shape === "large" && (
+              <div className="flex flex-col items-center">
+                <div className="flex gap-1.5">
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                </div>
+                <div className="my-0.5 h-3.5 w-10 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="flex gap-1.5">
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-1 flex items-center gap-1">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              derivedStatus === "BILL_REQUESTED"
+                ? "bg-purple-600 animate-pulse"
+                : derivedStatus === "ACTIVE_ORDER"
+                  ? "bg-amber-500 animate-pulse"
+                  : derivedStatus === "SEATED"
+                    ? "bg-blue-500"
+                    : "bg-slate-300"
+            }`}
+          />
+          <span className="text-[10px] font-black uppercase">
+            {derivedStatus === "BILL_REQUESTED"
+              ? "Bill"
+              : derivedStatus === "ACTIVE_ORDER"
+                ? `Cook (${activeOrderCount})`
+                : derivedStatus === "SEATED"
+                  ? "Seat"
+                  : "Open"}
+          </span>
+        </div>
+      </button>
+    );
+  };
+
+  return () => clearInterval(timer);
   }, []);
 
   const activeOrders = orders.filter(
@@ -162,6 +340,148 @@ export default function KitchenView({
     playOrderChime(true);
   };
 
+  const getDerivedTableStatus = (tableNum: number): TableOccupancyStatus => {
+    const hasBillRequest = serviceRequests.some(
+      (r) => r.table === tableNum && r.status === "Pending" && r.type === "Request Bill"
+    );
+    if (hasBillRequest) return "BILL_REQUESTED";
+
+    const hasActiveOrders = orders.some(
+      (o) =>
+        o.table === tableNum &&
+        (o.status === "New" || o.status === "Preparing" || o.status === "Ready")
+    );
+    if (hasActiveOrders) return "ACTIVE_ORDER";
+
+    const session = tableSessions[tableNum];
+    return session?.status || "VACANT";
+  };
+
+  const tableStatusCounts = {
+    ALL: 16,
+    VACANT: 0,
+    SEATED: 0,
+    ACTIVE_ORDER: 0,
+    BILL_REQUESTED: 0,
+  };
+  for (let i = 1; i <= 16; i++) {
+    const st = getDerivedTableStatus(i);
+    if (st in tableStatusCounts) {
+      tableStatusCounts[st as keyof typeof tableStatusCounts]++;
+    }
+  }
+
+  const renderTableMapCard = (meta: TableMeta, isCompact = false) => {
+    const num = meta.num;
+    const derivedStatus = getDerivedTableStatus(num);
+    const isSelected = selectedFloorTable === num;
+    const isFilteredOut = floorFilterStatus !== "ALL" && derivedStatus !== floorFilterStatus;
+
+    const activeOrderCount = orders.filter(
+      (o) => o.table === num && o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected"
+    ).length;
+
+    return (
+      <button
+        key={num}
+        type="button"
+        aria-label={`Table ${num} (${derivedStatus})`}
+        aria-pressed={isSelected}
+        onClick={() => setSelectedFloorTable(isSelected ? null : num)}
+        className={`group relative flex flex-col items-center justify-between rounded-2xl border transition-all duration-150 ${
+          isCompact ? "p-2 min-h-12" : "p-3 min-h-[96px]"
+        } ${
+          derivedStatus === "BILL_REQUESTED"
+            ? "border-purple-300 bg-purple-50/90 text-purple-950 shadow-xs ring-1 ring-purple-300/60"
+            : derivedStatus === "ACTIVE_ORDER"
+              ? "border-amber-300 bg-amber-50/90 text-amber-950 shadow-xs ring-1 ring-amber-300/60"
+              : derivedStatus === "SEATED"
+                ? "border-blue-300 bg-blue-50/90 text-blue-950 shadow-xs ring-1 ring-blue-300/60"
+                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50/80 shadow-xs"
+        } ${isSelected ? "scale-[1.03] ring-4 ring-amber-500 shadow-lg z-10" : "hover:scale-[1.02]"} ${
+          isFilteredOut ? "opacity-30 scale-95" : "opacity-100"
+        }`}
+      >
+        <div className="flex w-full items-center justify-between">
+          <span className="font-display tabular-nums text-sm font-black tracking-tight">
+            T{num}
+          </span>
+          <span className="text-[10px] font-bold text-slate-400 group-hover:text-slate-600">
+            {meta.capacity}p
+          </span>
+        </div>
+
+        {!isCompact && (
+          <div className="my-1.5 flex flex-col items-center">
+            {meta.shape === "booth" && (
+              <div className="flex flex-col items-center">
+                <div className="h-1.5 w-9 rounded-full bg-slate-300/80" />
+                <div className="my-0.5 h-4 w-7 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="h-1.5 w-9 rounded-full bg-slate-300/80" />
+              </div>
+            )}
+            {meta.shape === "round" && (
+              <div className="relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-slate-300 bg-slate-100">
+                <span className="h-2 w-2 rounded-full bg-slate-300" />
+              </div>
+            )}
+            {meta.shape === "rect" && (
+              <div className="flex flex-col items-center">
+                <div className="flex gap-2">
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                </div>
+                <div className="my-0.5 h-3.5 w-8 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="flex gap-2">
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                </div>
+              </div>
+            )}
+            {meta.shape === "large" && (
+              <div className="flex flex-col items-center">
+                <div className="flex gap-1.5">
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                </div>
+                <div className="my-0.5 h-3.5 w-10 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="flex gap-1.5">
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-1 flex items-center gap-1">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              derivedStatus === "BILL_REQUESTED"
+                ? "bg-purple-600 animate-pulse"
+                : derivedStatus === "ACTIVE_ORDER"
+                  ? "bg-amber-500 animate-pulse"
+                  : derivedStatus === "SEATED"
+                    ? "bg-blue-500"
+                    : "bg-slate-300"
+            }`}
+          />
+          <span className="text-[10px] font-black uppercase">
+            {derivedStatus === "BILL_REQUESTED"
+              ? "Bill"
+              : derivedStatus === "ACTIVE_ORDER"
+                ? `Cook (${activeOrderCount})`
+                : derivedStatus === "SEATED"
+                  ? "Seat"
+                  : "Open"}
+          </span>
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* KDS Staff Header */}
@@ -177,9 +497,7 @@ export default function KitchenView({
                 Kitchen Display System (KDS)
               </h2>
             </div>
-            <p className="text-xs text-slate-400">
-              Station Tablet • Real-time Order Expediting & Floor Management
-            </p>
+            
           </div>
         </div>
 
@@ -228,15 +546,7 @@ export default function KitchenView({
             Test Chime
           </button>
 
-          {/* Session Lock Button */}
-          <button
-            type="button"
-            onClick={onLockSession}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 px-4 py-2 text-xs font-bold text-rose-300 hover:bg-rose-500/20 transition"
-          >
-            <LockIcon size={14} />
-            <span>Lock KDS</span>
-          </button>
+          
         </div>
       </header>
 
@@ -259,134 +569,348 @@ export default function KitchenView({
         </div>
       )}
 
-      {/* Table Floor Lifecycle Strip (Tables 1 - 16) */}
-      <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-2">
-            <UtensilsIcon size={18} className="text-amber-700" />
-            <h3 className="font-display text-base font-bold text-slate-900">
-              Dining Floor Table Lifecycle
-            </h3>
-            <span className="text-xs font-bold text-slate-500">(16 Tables)</span>
+      {/* Interactive Dining Floor Table Map (Tables 1 - 16) */}
+      <section className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+        {/* Floor Map Header & Controls */}
+        <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
+              <UtensilsIcon size={18} />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display text-base font-bold text-slate-900 sm:text-lg">
+                  Dining Floor Plan &amp; Live Table Map
+                </h3>
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-600">
+                  16 Tables
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Click any table to inspect live orders, pending requests, or seat guests
+              </p>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs font-bold">
-            <span className="flex items-center gap-1.5 text-slate-600">
-              <span className="h-2.5 w-2.5 rounded-full bg-slate-300" /> Vacant
-            </span>
-            <span className="flex items-center gap-1.5 text-blue-700">
-              <span className="h-2.5 w-2.5 rounded-full bg-blue-500" /> Seated
-            </span>
-            <span className="flex items-center gap-1.5 text-amber-800">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Cooking
-            </span>
-            <span className="flex items-center gap-1.5 text-purple-800">
-              <span className="h-2.5 w-2.5 rounded-full bg-purple-500" /> Bill Due
-            </span>
-          </div>
-        </div>
 
-        {/* 16 Table Buttons (44px+ touch targets) */}
-        <div className="mt-3.5 grid grid-cols-4 gap-2 sm:grid-cols-8 lg:grid-cols-16">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((num) => {
-            const session = tableSessions[num];
-            const hasActiveOrders = orders.some(
-              (o) =>
-                o.table === num &&
-                (o.status === "New" || o.status === "Preparing" || o.status === "Ready")
-            );
-            const hasBillRequest = serviceRequests.some(
-              (r) => r.table === num && r.status === "Pending" && r.type === "Request Bill"
-            );
-
-            const derivedStatus: TableOccupancyStatus = hasBillRequest
-              ? "BILL_REQUESTED"
-              : hasActiveOrders
-                ? "ACTIVE_ORDER"
-                : session?.status || "VACANT";
-
-            const isSelected = selectedFloorTable === num;
-
-            return (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Live Filter Chips */}
+            <div className="flex flex-wrap items-center rounded-2xl bg-slate-100 p-1 text-xs font-bold">
               <button
-                key={num}
                 type="button"
-                aria-label={`Table ${num} (${derivedStatus})`}
-                aria-pressed={isSelected}
-                onClick={() => setSelectedFloorTable(isSelected ? null : num)}
-                className={`relative flex min-h-12 flex-col items-center justify-center rounded-xl border p-2 transition text-center ${
-                  derivedStatus === "BILL_REQUESTED"
-                    ? "border-purple-300 bg-purple-50 text-purple-950 font-black ring-2 ring-purple-400"
-                    : derivedStatus === "ACTIVE_ORDER"
-                      ? "border-amber-300 bg-amber-50 text-amber-950 font-black ring-2 ring-amber-400"
-                      : derivedStatus === "SEATED"
-                        ? "border-blue-300 bg-blue-50 text-blue-950 font-bold"
-                        : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
-                } ${isSelected ? "scale-105 shadow-md" : ""}`}
+                onClick={() => setFloorFilterStatus("ALL")}
+                className={`min-h-8 rounded-xl px-2.5 py-1 transition ${
+                  floorFilterStatus === "ALL"
+                    ? "bg-slate-900 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
               >
-                <span className="tabular-nums text-xs font-black">T{num}</span>
-                <span
-                  className={`mt-1 h-2 w-2 rounded-full ${
-                    derivedStatus === "BILL_REQUESTED"
-                      ? "bg-purple-600 animate-pulse"
-                      : derivedStatus === "ACTIVE_ORDER"
-                        ? "bg-amber-500 animate-pulse"
-                        : derivedStatus === "SEATED"
-                          ? "bg-blue-500"
-                          : "bg-slate-300"
-                  }`}
-                />
+                All (16)
               </button>
-            );
-          })}
-        </div>
-
-        {/* Selected Table Quick Actions Bar */}
-        {selectedFloorTable !== null && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="font-black text-slate-900">
-                Table {selectedFloorTable} Selected:
-              </span>
-              <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-bold uppercase text-slate-700">
-                Current: {tableSessions[selectedFloorTable]?.status || "VACANT"}
-              </span>
+              <button
+                type="button"
+                onClick={() => setFloorFilterStatus("VACANT")}
+                className={`inline-flex min-h-8 items-center gap-1.5 rounded-xl px-2.5 py-1 transition ${
+                  floorFilterStatus === "VACANT"
+                    ? "bg-slate-900 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <span className="h-2 w-2 rounded-full bg-slate-300" />
+                <span>Vacant ({tableStatusCounts.VACANT})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFloorFilterStatus("SEATED")}
+                className={`inline-flex min-h-8 items-center gap-1.5 rounded-xl px-2.5 py-1 transition ${
+                  floorFilterStatus === "SEATED"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "text-blue-700 hover:text-blue-900"
+                }`}
+              >
+                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                <span>Seated ({tableStatusCounts.SEATED})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFloorFilterStatus("ACTIVE_ORDER")}
+                className={`inline-flex min-h-8 items-center gap-1.5 rounded-xl px-2.5 py-1 transition ${
+                  floorFilterStatus === "ACTIVE_ORDER"
+                    ? "bg-amber-600 text-white shadow-sm"
+                    : "text-amber-800 hover:text-amber-950"
+                }`}
+              >
+                <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                <span>Cooking ({tableStatusCounts.ACTIVE_ORDER})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFloorFilterStatus("BILL_REQUESTED")}
+                className={`inline-flex min-h-8 items-center gap-1.5 rounded-xl px-2.5 py-1 transition ${
+                  floorFilterStatus === "BILL_REQUESTED"
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "text-purple-800 hover:text-purple-950"
+                }`}
+              >
+                <span className="h-2 w-2 rounded-full bg-purple-500 animate-pulse" />
+                <span>Bill Due ({tableStatusCounts.BILL_REQUESTED})</span>
+              </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {onUpdateTableStatus && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onUpdateTableStatus(selectedFloorTable, "SEATED");
-                    setSelectedFloorTable(null);
-                  }}
-                  className="min-h-10 rounded-xl bg-blue-600 px-3.5 py-2 font-bold text-white hover:bg-blue-500 transition"
-                >
-                  Seat Table
-                </button>
-              )}
-
-              {onClearTable && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClearTable(selectedFloorTable);
-                    setSelectedFloorTable(null);
-                  }}
-                  className="min-h-10 rounded-xl bg-emerald-600 px-3.5 py-2 font-bold text-white hover:bg-emerald-500 transition"
-                >
-                  Clear Table / Mark Vacant
-                </button>
-              )}
-
+            {/* View Switcher: Interactive Map vs Compact Grid */}
+            <div className="flex rounded-xl border border-slate-200 bg-white p-0.5 text-xs font-bold shadow-xs">
               <button
                 type="button"
-                aria-label="Close table action bar"
-                onClick={() => setSelectedFloorTable(null)}
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-200 font-bold text-slate-700 hover:bg-slate-300"
+                onClick={() => setFloorViewMode("map")}
+                className={`min-h-8 rounded-lg px-2.5 py-1 transition ${
+                  floorViewMode === "map"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
               >
-                <XIcon size={16} />
+                Map View
               </button>
+              <button
+                type="button"
+                onClick={() => setFloorViewMode("grid")}
+                className={`min-h-8 rounded-lg px-2.5 py-1 transition ${
+                  floorViewMode === "grid"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Quick Grid
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* View Mode 1: Interactive Floor Map */}
+        {floorViewMode === "map" ? (
+          <div className="mt-4 rounded-3xl border border-slate-200/90 bg-gradient-to-b from-[#fbfbfe] to-slate-50/60 p-4 sm:p-5">
+            {/* Floor Spatial Cues / Landmark Indicators */}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
+              <div className="flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-800">
+                <span>🪟</span>
+                <span>Street Glass Windows (Booths 1 - 4)</span>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-amber-900">
+                <ChefHatIcon size={13} className="text-amber-700" />
+                <span>Kitchen Expediter &amp; Service Pass</span>
+              </div>
+            </div>
+
+            {/* Interactive Zones Container */}
+            <div className="grid gap-4 lg:grid-cols-12">
+              {/* Zone A: Window Booths (Tables 1 - 4) */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-3.5 shadow-xs lg:col-span-4 space-y-2.5">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <span>🪟</span> Window Bay Booths
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-500">4-Tops</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {TABLE_METAS.filter((t) => t.zone === "window").map((t) =>
+                    renderTableMapCard(t)
+                  )}
+                </div>
+              </div>
+
+              {/* Zone B: Main Dining Hall (Tables 5 - 12) */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-3.5 shadow-xs lg:col-span-5 space-y-2.5">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <span>🍽️</span> Main Dining Hall
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-500">2, 4 &amp; 6 Seats</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-2.5">
+                  {TABLE_METAS.filter((t) => t.zone === "main").map((t) =>
+                    renderTableMapCard(t)
+                  )}
+                </div>
+              </div>
+
+              {/* Zone C: Garden Patio & Lounge (Tables 13 - 16) */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-3.5 shadow-xs lg:col-span-3 space-y-2.5">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <span>🌿</span> Garden Patio
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-500">Bistro Rounds</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {TABLE_METAS.filter((t) => t.zone === "patio").map((t) =>
+                    renderTableMapCard(t)
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Floor Landmark Cue: Main Entrance */}
+            <div className="mt-3.5 flex items-center justify-between text-[11px] font-bold text-slate-500 pt-2 border-t border-slate-200/60">
+              <div className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700">
+                <span>🚪</span>
+                <span>Main Entrance &amp; Hostess Station</span>
+              </div>
+              <span className="text-slate-400">Physical Dining Layout Preview</span>
+            </div>
+          </div>
+        ) : (
+          /* View Mode 2: Quick Compact Grid */
+          <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-8 lg:grid-cols-16">
+            {TABLE_METAS.map((t) => renderTableMapCard(t, true))}
+          </div>
+        )}
+
+        {/* Selected Table Interactive Inspector Drawer */}
+        {selectedFloorTable !== null && (
+          <div className="mt-4 rounded-2xl border-2 border-slate-900 bg-slate-950 p-4 text-white shadow-xl transition animate-in fade-in slide-in-from-top-2 duration-150">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500 font-black text-slate-950 text-base shadow">
+                  T{selectedFloorTable}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-display text-base font-bold text-white sm:text-lg">
+                      Table {selectedFloorTable}
+                    </h4>
+                    <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-[11px] font-bold text-slate-300">
+                      {TABLE_METAS.find((m) => m.num === selectedFloorTable)?.zoneTitle || "Dining Room"} •{" "}
+                      {TABLE_METAS.find((m) => m.num === selectedFloorTable)?.capacity || 4} Seats
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                    <span>Status:</span>
+                    <span
+                      className={`font-black uppercase ${
+                        getDerivedTableStatus(selectedFloorTable) === "BILL_REQUESTED"
+                          ? "text-purple-400"
+                          : getDerivedTableStatus(selectedFloorTable) === "ACTIVE_ORDER"
+                            ? "text-amber-400"
+                            : getDerivedTableStatus(selectedFloorTable) === "SEATED"
+                              ? "text-blue-400"
+                              : "text-slate-400"
+                      }`}
+                    >
+                      {getDerivedTableStatus(selectedFloorTable).replace("_", " ")}
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Table Action Controls */}
+              <div className="flex flex-wrap items-center gap-2">
+                {onUpdateTableStatus && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateTableStatus(selectedFloorTable, "SEATED");
+                    }}
+                    className="min-h-10 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-blue-500 transition shadow-sm"
+                  >
+                    Seat Table
+                  </button>
+                )}
+
+                {onClearTable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClearTable(selectedFloorTable);
+                    }}
+                    className="min-h-10 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-500 transition shadow-sm"
+                  >
+                    Clear Table / Mark Vacant
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  aria-label="Close table inspector"
+                  onClick={() => setSelectedFloorTable(null)}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                >
+                  <XIcon size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Inspector Details Grid */}
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {/* Active Orders at this Table */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 text-xs">
+                <span className="font-black text-slate-300 flex items-center gap-1.5 mb-2">
+                  <ChefHatIcon size={14} className="text-amber-400" />
+                  Active Kitchen Orders ({orders.filter((o) => o.table === selectedFloorTable && o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected").length})
+                </span>
+                {orders.filter((o) => o.table === selectedFloorTable && o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected").length === 0 ? (
+                  <p className="text-slate-500 italic">No active food orders in queue for this table.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {orders
+                      .filter((o) => o.table === selectedFloorTable && o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected")
+                      .map((o) => (
+                        <div key={o.id} className="flex items-center justify-between rounded-lg bg-slate-800/80 p-2.5">
+                          <div className="min-w-0 pr-2">
+                            <span className="font-bold text-amber-300">
+                              #{o.orderNumber || o.id.slice(0, 6)} • {formatPrice(o.total, currency)}
+                            </span>
+                            <p className="truncate text-[11px] text-slate-400 mt-0.5">
+                              {o.items.map((i) => `${i.quantity}x ${i.name}`).join(", ")}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById(`order-ticket-${o.id}`);
+                              if (el) {
+                                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                                el.classList.add("ring-4", "ring-amber-400");
+                                setTimeout(() => el.classList.remove("ring-4", "ring-amber-400"), 2500);
+                              }
+                            }}
+                            className="shrink-0 rounded-lg bg-amber-500 px-2.5 py-1 text-[11px] font-black text-slate-950 hover:bg-amber-400 transition"
+                          >
+                            Inspect Ticket
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Pending Service Requests */}
+              <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 text-xs">
+                <span className="font-black text-slate-300 flex items-center gap-1.5 mb-2">
+                  <BellIcon size={14} className="text-purple-400" />
+                  Service Requests ({serviceRequests.filter((r) => r.table === selectedFloorTable && r.status === "Pending").length})
+                </span>
+                {serviceRequests.filter((r) => r.table === selectedFloorTable && r.status === "Pending").length === 0 ? (
+                  <p className="text-slate-500 italic">No pending waiter or refill requests.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {serviceRequests
+                      .filter((r) => r.table === selectedFloorTable && r.status === "Pending")
+                      .map((req) => (
+                        <div key={req.id} className="flex items-center justify-between rounded-lg bg-slate-800/80 p-2.5">
+                          <div>
+                            <span className="font-bold text-purple-300">{req.type}</span>
+                            <span className="text-[11px] text-slate-400 block">`{getElapsedMinutes(req.createdAt)}m ago • Table ${req.table}`</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onResolveService(req.id)}
+                            className="shrink-0 rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-500 transition"
+                          >
+                            Resolve
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -446,7 +970,149 @@ export default function KitchenView({
               const isWarning = elapsedMins >= 5 && elapsedMins < 10;
               const isVacantWarning = order.tableWasVacant;
 
-              return (
+              const getDerivedTableStatus = (tableNum: number): TableOccupancyStatus => {
+    const hasBillRequest = serviceRequests.some(
+      (r) => r.table === tableNum && r.status === "Pending" && r.type === "Request Bill"
+    );
+    if (hasBillRequest) return "BILL_REQUESTED";
+
+    const hasActiveOrders = orders.some(
+      (o) =>
+        o.table === tableNum &&
+        (o.status === "New" || o.status === "Preparing" || o.status === "Ready")
+    );
+    if (hasActiveOrders) return "ACTIVE_ORDER";
+
+    const session = tableSessions[tableNum];
+    return session?.status || "VACANT";
+  };
+
+  const tableStatusCounts = {
+    ALL: 16,
+    VACANT: 0,
+    SEATED: 0,
+    ACTIVE_ORDER: 0,
+    BILL_REQUESTED: 0,
+  };
+  for (let i = 1; i <= 16; i++) {
+    const st = getDerivedTableStatus(i);
+    if (st in tableStatusCounts) {
+      tableStatusCounts[st as keyof typeof tableStatusCounts]++;
+    }
+  }
+
+  const renderTableMapCard = (meta: TableMeta, isCompact = false) => {
+    const num = meta.num;
+    const derivedStatus = getDerivedTableStatus(num);
+    const isSelected = selectedFloorTable === num;
+    const isFilteredOut = floorFilterStatus !== "ALL" && derivedStatus !== floorFilterStatus;
+
+    const activeOrderCount = orders.filter(
+      (o) => o.table === num && o.status !== "Served" && o.status !== "Archived" && o.status !== "Rejected"
+    ).length;
+
+    return (
+      <button
+        key={num}
+        type="button"
+        aria-label={`Table ${num} (${derivedStatus})`}
+        aria-pressed={isSelected}
+        onClick={() => setSelectedFloorTable(isSelected ? null : num)}
+        className={`group relative flex flex-col items-center justify-between rounded-2xl border transition-all duration-150 ${
+          isCompact ? "p-2 min-h-12" : "p-3 min-h-[96px]"
+        } ${
+          derivedStatus === "BILL_REQUESTED"
+            ? "border-purple-300 bg-purple-50/90 text-purple-950 shadow-xs ring-1 ring-purple-300/60"
+            : derivedStatus === "ACTIVE_ORDER"
+              ? "border-amber-300 bg-amber-50/90 text-amber-950 shadow-xs ring-1 ring-amber-300/60"
+              : derivedStatus === "SEATED"
+                ? "border-blue-300 bg-blue-50/90 text-blue-950 shadow-xs ring-1 ring-blue-300/60"
+                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50/80 shadow-xs"
+        } ${isSelected ? "scale-[1.03] ring-4 ring-amber-500 shadow-lg z-10" : "hover:scale-[1.02]"} ${
+          isFilteredOut ? "opacity-30 scale-95" : "opacity-100"
+        }`}
+      >
+        <div className="flex w-full items-center justify-between">
+          <span className="font-display tabular-nums text-sm font-black tracking-tight">
+            T{num}
+          </span>
+          <span className="text-[10px] font-bold text-slate-400 group-hover:text-slate-600">
+            {meta.capacity}p
+          </span>
+        </div>
+
+        {!isCompact && (
+          <div className="my-1.5 flex flex-col items-center">
+            {meta.shape === "booth" && (
+              <div className="flex flex-col items-center">
+                <div className="h-1.5 w-9 rounded-full bg-slate-300/80" />
+                <div className="my-0.5 h-4 w-7 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="h-1.5 w-9 rounded-full bg-slate-300/80" />
+              </div>
+            )}
+            {meta.shape === "round" && (
+              <div className="relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-slate-300 bg-slate-100">
+                <span className="h-2 w-2 rounded-full bg-slate-300" />
+              </div>
+            )}
+            {meta.shape === "rect" && (
+              <div className="flex flex-col items-center">
+                <div className="flex gap-2">
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                </div>
+                <div className="my-0.5 h-3.5 w-8 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="flex gap-2">
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                  <span className="h-1 w-2 rounded-full bg-slate-300" />
+                </div>
+              </div>
+            )}
+            {meta.shape === "large" && (
+              <div className="flex flex-col items-center">
+                <div className="flex gap-1.5">
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                </div>
+                <div className="my-0.5 h-3.5 w-10 rounded-md border border-slate-300 bg-slate-100" />
+                <div className="flex gap-1.5">
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1.5 rounded-full bg-slate-300" />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-1 flex items-center gap-1">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              derivedStatus === "BILL_REQUESTED"
+                ? "bg-purple-600 animate-pulse"
+                : derivedStatus === "ACTIVE_ORDER"
+                  ? "bg-amber-500 animate-pulse"
+                  : derivedStatus === "SEATED"
+                    ? "bg-blue-500"
+                    : "bg-slate-300"
+            }`}
+          />
+          <span className="text-[10px] font-black uppercase">
+            {derivedStatus === "BILL_REQUESTED"
+              ? "Bill"
+              : derivedStatus === "ACTIVE_ORDER"
+                ? `Cook (${activeOrderCount})`
+                : derivedStatus === "SEATED"
+                  ? "Seat"
+                  : "Open"}
+          </span>
+        </div>
+      </button>
+    );
+  };
+
+  return (
                 <div
                   key={order.id}
                   className={`flex flex-col justify-between rounded-[26px] border bg-white p-5 shadow-sm transition hover:shadow-md ${

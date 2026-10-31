@@ -16,11 +16,14 @@ import {
   ShieldCheckIcon,
   SparklesIcon,
   TrashIcon,
+  TrophyIcon,
   UtensilsIcon,
   XIcon,
 } from "@/components/Icons";
 import { broadcastSyncEvent, getStoredOrders, saveStoredOrders } from "@/lib/sync";
 import { clearRestaurantLocalData, saveStoredRestaurants, setRestaurantSuspensionFlag } from "@/lib/restaurants";
+import { resetLeaderboardInSupabase } from "@/lib/supabase";
+import { saveStoredLeaderboard } from "@/lib/geo";
 
 export default function DeveloperPortalPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -42,8 +45,8 @@ export default function DeveloperPortalPage() {
     address: "",
     phone: "051 111 111 199",
     currency: "PKR" as "PKR" | "USD",
-    staffPin: "1234",
-    ownerPin: "8888",
+    staffPin: "",
+    ownerPin: "",
     securityMode: "hybrid_gps" as "dine_in_code" | "hybrid_gps" | "kds_only",
     dailyDineInCode: "42",
     wifiSsid: "",
@@ -215,8 +218,8 @@ export default function DeveloperPortalPage() {
           address: "",
           phone: "051 111 111 199",
           currency: "PKR",
-          staffPin: "1234",
-          ownerPin: "8888",
+          staffPin: "",
+          ownerPin: "",
           securityMode: "hybrid_gps",
           dailyDineInCode: "42",
           wifiSsid: "",
@@ -503,6 +506,24 @@ export default function DeveloperPortalPage() {
       });
     } catch {
       // Fallback
+    }
+  };
+
+  const handleResetRestaurantLeaderboard = async (restaurant: Restaurant) => {
+    if (
+      !confirm(
+        `Reset arcade leaderboard for "${restaurant.name}"? This will delete all high scores from Supabase and zero the board across all customer devices.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await resetLeaderboardInSupabase(restaurant.id);
+      saveStoredLeaderboard([]);
+      broadcastSyncEvent({ type: "LEADERBOARD_UPDATED", payload: [] });
+      alert(`Leaderboard reset to zero for ${restaurant.name}`);
+    } catch {
+      alert(`Failed to reset leaderboard for ${restaurant.name}`);
     }
   };
 
@@ -922,6 +943,16 @@ export default function DeveloperPortalPage() {
 
                       <button
                         type="button"
+                        onClick={() => handleResetRestaurantLeaderboard(r)}
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-950/60 px-3.5 py-1.5 text-xs font-bold text-amber-300 hover:bg-amber-900/60 transition"
+                        title="Reset this restaurant's arcade leaderboard to zero"
+                      >
+                        <TrophyIcon size={14} />
+                        <span>Reset Leaderboard</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => openPurgeModal(r)}
                         className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-950/60 px-3.5 py-1.5 text-xs font-bold text-rose-300 hover:bg-rose-900/60 transition"
                       >
@@ -1058,7 +1089,7 @@ export default function DeveloperPortalPage() {
                   <input
                     id="r-phone"
                     type="text"
-                    placeholder="091 1234567"
+                    placeholder="091 5550199"
                     value={onboardForm.phone}
                     onChange={(e) => setOnboardForm({ ...onboardForm, phone: e.target.value })}
                     className="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-white focus:border-amber-400 focus:outline-none"

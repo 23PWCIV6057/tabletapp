@@ -5,20 +5,18 @@ export const DEV_COOKIE_NAME = "table_tapp_dev_session";
 
 function getDevPassword(): string {
   const envPass = process.env.DEV_PORTAL_PASSWORD;
-  if (envPass) return envPass;
-  if (process.env.NODE_ENV === "production" && process.env.VERCEL) {
-    throw new Error("CRITICAL: DEV_PORTAL_PASSWORD must be configured in environment");
+  if (!envPass) {
+    throw new Error("DEV_PORTAL_PASSWORD must be configured in environment variables");
   }
-  return "tabledev2026";
+  return envPass;
 }
 
 function getDevSecret(): string {
   const envSecret = process.env.DEV_AUTH_SECRET;
-  if (envSecret) return envSecret;
-  if (process.env.NODE_ENV === "production" && process.env.VERCEL) {
-    throw new Error("CRITICAL: DEV_AUTH_SECRET must be configured in environment");
+  if (!envSecret) {
+    throw new Error("DEV_AUTH_SECRET must be configured in environment variables");
   }
-  return "table_tapp_super_dev_secret_key_982341";
+  return envSecret;
 }
 
 // In-memory rate limiting against BurpSuite / Hydra dictionary attacks
@@ -98,8 +96,14 @@ export function verifyDeveloperToken(token: string | undefined): boolean {
     return false; // Expired
   }
 
+  let secret: string;
+  try {
+    secret = getDevSecret();
+  } catch {
+    return false;
+  }
   const payload = `${role}:${timestampStr}:${nonce}`;
-  const expectedSig = crypto.createHmac("sha256", getDevSecret()).update(payload).digest("hex");
+  const expectedSig = crypto.createHmac("sha256", secret).update(payload).digest("hex");
 
   const sigA = Buffer.from(receivedSig);
   const sigB = Buffer.from(expectedSig);

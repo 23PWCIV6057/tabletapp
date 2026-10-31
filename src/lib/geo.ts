@@ -17,7 +17,7 @@ export const DEFAULT_GEO_CONFIG: GeoFenceConfig = {
   securityMode: "hybrid_gps",
   dailyDineInCode: "42",
   wifiSsid: "HeatBox_Peshawar_5G",
-  wifiPassword: "heatbox123",
+  wifiPassword: "",
   arcadePrizeText: "Hold the #1 spot on Today's Leaderboard to win a Free Molten Lava Cake!",
   strictMode: false,
   activePreset: "heatbox",

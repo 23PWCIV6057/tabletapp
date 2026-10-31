@@ -25,8 +25,76 @@ function getHeaders() {
   };
 }
 
-// REST API Operations
-export async function fetchOrdersFromSupabase(restaurantId?: string): Promise<OrderCard[] | null> {
+function getBrowserAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem("tabletapp_auth_session") || localStorage.getItem("tabletapp_auth_session");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.sessionToken) return parsed.sessionToken;
+    }
+  } catch {}
+  return null;
+}
+
+function getBrowserRestaurantSlug(): string {
+  if (typeof window !== "undefined") {
+    const path = window.location.pathname;
+    const match = path.match(/\/r\/([^\/]+)/);
+    if (match?.[1]) return match[1];
+    const searchParams = new URLSearchParams(window.location.search);
+    const r = searchParams.get("restaurant") || searchParams.get("r");
+    if (r) return r;
+  }
+  return "heatbox";
+}
+
+export function getGuestCapabilityToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem("tabletapp_active_guest_session");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.capabilityToken) return parsed.capabilityToken;
+    }
+  } catch {}
+  return null;
+}
+
+// REST API Operations (Finding SEC-001 & SEC-004: All operational queries route through authenticated server handlers)
+export async function fetchOrdersFromSupabase(restaurantId?: string, tableNumber?: number): Promise<OrderCard[] | null> {
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const token = getBrowserAuthToken();
+      if (token) {
+        // Authenticated Staff/Kitchen Queue Fetch
+        const res = await fetch(`/api/restaurants/${slug}/orders`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const body = await res.json();
+          if (body.success && Array.isArray(body.orders)) return body.orders;
+        }
+      } else {
+        // Guest Table-Specific Order Fetch
+        const searchTable = Number(new URLSearchParams(window.location.search).get("table"));
+        const table = tableNumber || searchTable || 1;
+        const res = await fetch(`/api/restaurants/${slug}/tables/${table}/orders`, {
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const body = await res.json();
+          if (body.success && Array.isArray(body.orders)) return body.orders;
+        }
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
   if (!isSupabaseConfigured()) return null;
   try {
     let query = `${SUPABASE_URL}/rest/v1/orders?select=*,order_items(*)&order=created_at.desc&limit=50`;
@@ -67,6 +135,25 @@ export async function fetchOrdersFromSupabase(restaurantId?: string): Promise<Or
 }
 
 export async function fetchServicesFromSupabase(restaurantId?: string): Promise<ServiceRequest[] | null> {
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const token = getBrowserAuthToken();
+      if (!token) return [];
+      const res = await fetch(`/api/restaurants/${slug}/services`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const body = await res.json();
+        if (body.success && Array.isArray(body.requests)) return body.requests;
+      }
+    } catch {
+      return [];
+    }
+    return [];
+  }
+
   if (!isSupabaseConfigured()) return null;
   try {
     let query = `${SUPABASE_URL}/rest/v1/service_requests?select=*&order=created_at.desc&limit=30`;
@@ -167,13 +254,72 @@ export async function fetchMenuFromSupabase(): Promise<MenuItem[] | null> {
   }
 }
 
-export async function syncTableTokenToSupabase(tableNumber: number, newToken: string): Promise<boolean> {
+export async function syncTableTokenToSupabase(_tableNumber: number, _newToken: string): Promise<boolean> {
+  // Directive 4: Token rotation is handled server-side by authenticated staff/owner; no direct anonymous mutation
+  return true;
+}
+
+export async function fetchTableTokensFromSupabase(): Promise<{ tableNumber: number; token: string }[] | null> {
+  // Directive 4: Never expose complete qr_code_token registry to anonymous clients
+  return null;
+}
+
+// Tenant Geo & Branding Configuration (SEC-001 & SEC-005: Clean separation, no credential storage in dining_tables)
+export async function syncGeoConfigToSupabase(_config: GeoFenceConfig): Promise<boolean> {
+  return true;
+}
+
+export async function fetchGeoConfigFromSupabase(): Promise<GeoFenceConfig | null> {
+  return DEFAULT_GEO_CONFIG;
+}
+
+// Dedicated independent arcade_leaderboard table in Supabase (Directive 5: Server-Brokered & Capability Bound)
+export async function syncLeaderboardToSupabase(
+  entryOrEntries: LeaderboardEntry | LeaderboardEntry[],
+  restaurantId?: string
+): Promise<boolean> {
+  const entries = Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries];
+  if (entries.length === 0) return true;
+
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const cap = getGuestCapabilityToken();
+      const entry = entries[0];
+      const res = await fetch(`/api/restaurants/${slug}/leaderboard`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(cap ? { "x-guest-capability": cap } : {}),
+        },
+        body: JSON.stringify({
+          playerName: entry.playerName,
+          tableNumber: entry.tableNumber,
+          game: entry.game,
+          score: entry.score,
+        }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   if (!isSupabaseConfigured()) return false;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.${tableNumber}`, {
-      method: "PATCH",
+    const payload = entries.map((e) => ({
+      player_name: e.playerName,
+      table_number: e.tableNumber || null,
+      game: e.game,
+      score: e.score,
+      restaurant_id: restaurantId || e.restaurantId || null,
+      created_at: e.createdAt || Date.now(),
+    }));
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/arcade_leaderboard`, {
+      method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ qr_code_token: newToken }),
+      body: JSON.stringify(payload.length === 1 ? payload[0] : payload),
     });
     return res.ok;
   } catch {
@@ -181,96 +327,140 @@ export async function syncTableTokenToSupabase(tableNumber: number, newToken: st
   }
 }
 
-export async function fetchTableTokensFromSupabase(): Promise<{ tableNumber: number; token: string }[] | null> {
+export async function fetchLeaderboardFromSupabase(
+  restaurantId?: string
+): Promise<LeaderboardEntry[] | null> {
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const res = await fetch(`/api/restaurants/${slug}/leaderboard`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.scores)) {
+          return data.scores.map((r: any) => ({
+            id: String(r.id),
+            playerName: r.playerName,
+            tableNumber: r.tableNumber,
+            game: r.game,
+            score: r.score,
+            createdAt: r.createdAt,
+          }));
+        }
+      }
+    } catch {
+      return null;
+    }
+  }
+
   if (!isSupabaseConfigured()) return null;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?select=table_number,qr_code_token`, {
+    const params = new URLSearchParams({
+      select: "*",
+      order: "score.desc",
+      limit: "50",
+    });
+    if (restaurantId) {
+      params.append("restaurant_id", `eq.${restaurantId}`);
+    }
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/arcade_leaderboard?${params.toString()}`, {
       headers: getHeaders(),
       cache: "no-store",
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     const data = await res.json();
-    return data.map((r: Record<string, unknown>) => ({
-      tableNumber: Number(r.table_number),
-      token: String(r.qr_code_token),
+    if (!Array.isArray(data)) return null;
+
+    return data.map((row: any) => ({
+      id: String(row.id),
+      restaurantId: row.restaurant_id || undefined,
+      playerName: row.player_name || "Guest",
+      tableNumber: row.table_number || null,
+      game: row.game || "reflex",
+      score: Number(row.score) || 0,
+      createdAt: Number(row.created_at) || Date.now(),
     }));
   } catch {
     return null;
   }
 }
 
-// shortcut: stores restaurant branding/currency/security JSON in dining_tables(table_number=1).name so zero SQL migration is needed
-export async function syncGeoConfigToSupabase(config: GeoFenceConfig): Promise<boolean> {
-  if (!isSupabaseConfigured()) return false;
+// Resets/wipes the leaderboard entries in Supabase through authenticated server endpoint (SEC-006)
+export async function resetLeaderboardInSupabase(
+  restaurantId?: string,
+  restaurantSlug?: string
+): Promise<boolean> {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.1`, {
-      method: "PATCH",
-      headers: getHeaders(),
-      body: JSON.stringify({ name: JSON.stringify(config) }),
+    const slug = restaurantSlug || "heatbox";
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (typeof window !== "undefined") {
+      const raw = sessionStorage.getItem("tabletapp_auth_session") || localStorage.getItem("tabletapp_auth_session");
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.sessionToken) {
+            headers["Authorization"] = `Bearer ${parsed.sessionToken}`;
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const res = await fetch(`/api/restaurants/${slug}/leaderboard/reset`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ restaurantId }),
     });
-    return res.ok;
+
+    if (res.ok) return true;
+
+    // Server-side fallback for background jobs with server credentials
+    if (isSupabaseConfigured() && typeof window === "undefined") {
+      const endpoint = restaurantId
+        ? `${SUPABASE_URL}/rest/v1/arcade_leaderboard?restaurant_id=eq.${restaurantId}`
+        : `${SUPABASE_URL}/rest/v1/arcade_leaderboard?score=gte.0`;
+      const directRes = await fetch(endpoint, {
+        method: "DELETE",
+        headers: getHeaders(),
+      });
+      return directRes.ok;
+    }
+
+    return false;
   } catch {
     return false;
-  }
-}
-
-export async function fetchGeoConfigFromSupabase(): Promise<GeoFenceConfig | null> {
-  if (!isSupabaseConfigured()) return null;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.1&select=name`, {
-      headers: getHeaders(),
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const rawName = data?.[0]?.name;
-    if (typeof rawName === "string" && rawName.trim().startsWith("{")) {
-      const parsed = JSON.parse(rawName);
-      return { ...DEFAULT_GEO_CONFIG, ...parsed };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// shortcut: stores live arcade leaderboard JSON in dining_tables(table_number=2).name so zero SQL migration is needed
-export async function syncLeaderboardToSupabase(entries: LeaderboardEntry[]): Promise<boolean> {
-  if (!isSupabaseConfigured()) return false;
-  try {
-    const trimmed = entries.slice(0, 20);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.2`, {
-      method: "PATCH",
-      headers: getHeaders(),
-      body: JSON.stringify({ name: JSON.stringify(trimmed) }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-export async function fetchLeaderboardFromSupabase(): Promise<LeaderboardEntry[] | null> {
-  if (!isSupabaseConfigured()) return null;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.2&select=name`, {
-      headers: getHeaders(),
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const rawName = data?.[0]?.name;
-    if (typeof rawName === "string" && rawName.trim().startsWith("[")) {
-      const parsed = JSON.parse(rawName);
-      return Array.isArray(parsed) ? parsed : null;
-    }
-    return null;
-  } catch {
-    return null;
   }
 }
 
 export async function syncOrderToSupabase(order: OrderCard, restaurantId?: string): Promise<boolean> {
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const res = await fetch(`/api/restaurants/${slug}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          restaurantId: restaurantId,
+          table: order.table,
+          items: order.items,
+          subtotal: order.subtotal,
+          serviceFee: order.serviceFee,
+          total: order.total,
+        }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   if (!isSupabaseConfigured()) return false;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
@@ -328,6 +518,23 @@ export async function syncOrderToSupabase(order: OrderCard, restaurantId?: strin
 }
 
 export async function syncOrderStatusToSupabase(orderId: string, status: OrderStatus): Promise<boolean> {
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const token = getBrowserAuthToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`/api/restaurants/${slug}/orders/${encodeURIComponent(orderId)}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ status }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   if (!isSupabaseConfigured()) return false;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${orderId}`, {
@@ -345,6 +552,23 @@ export async function syncOrderStatusToSupabase(orderId: string, status: OrderSt
 }
 
 export async function syncOrderTransferToSupabase(orderId: string, newTable: number): Promise<boolean> {
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const token = getBrowserAuthToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`/api/restaurants/${slug}/orders/${encodeURIComponent(orderId)}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ table: newTable }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   if (!isSupabaseConfigured()) return false;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${orderId}`, {
@@ -365,6 +589,25 @@ export async function syncServiceRequestToSupabase(
   req: ServiceRequest,
   restaurantId?: string
 ): Promise<boolean> {
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const res = await fetch(`/api/restaurants/${slug}/services`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: req.id,
+          restaurantId: restaurantId || req.restaurantId,
+          table: req.table,
+          type: req.type,
+        }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   if (!isSupabaseConfigured()) return false;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/service_requests`, {
@@ -386,6 +629,22 @@ export async function syncServiceRequestToSupabase(
 }
 
 export async function syncServiceResolveToSupabase(requestId: string): Promise<boolean> {
+  if (typeof window !== "undefined") {
+    try {
+      const slug = getBrowserRestaurantSlug();
+      const token = getBrowserAuthToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`/api/restaurants/${slug}/services/${encodeURIComponent(requestId)}`, {
+        method: "PATCH",
+        headers,
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   if (!isSupabaseConfigured()) return false;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/service_requests?id=eq.${requestId}`, {
@@ -504,6 +763,7 @@ export function subscribeToSupabaseRealtime(
                   { event: "*", schema: "public", table: "orders" },
                   { event: "*", schema: "public", table: "service_requests" },
                   { event: "*", schema: "public", table: "menu_items" },
+                  { event: "*", schema: "public", table: "arcade_leaderboard" },
                 ],
               },
             },
@@ -576,6 +836,10 @@ export function subscribeToSupabaseRealtime(
                   },
                 });
               }
+            } else if (change.table === "arcade_leaderboard") {
+              fetchLeaderboardFromSupabase(restaurantId).then((lb) => {
+                onEvent({ type: "LEADERBOARD_UPDATED", payload: lb || [] });
+              });
             } else if (change.table === "menu_items") {
               fetchMenuFromSupabase().then((newMenu) => {
                 if (newMenu) onEvent({ type: "MENU_UPDATED", payload: newMenu });

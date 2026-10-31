@@ -171,10 +171,9 @@ export default function PinModal({ requestedRole, isOpen, onSuccess, onClose, re
           </button>
         </div>
 
-        {/* Demo PIN hints for testing */}
+        {/* Security Notice */}
         <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-2.5 text-center text-xs text-slate-400">
-          <span className="font-semibold text-slate-300">Staff PIN:</span> 1234 &nbsp;•&nbsp;{" "}
-          <span className="font-semibold text-slate-300">Manager PIN:</span> 8888
+          Authorized staff & management personnel only
         </div>
       </div>
     </div>

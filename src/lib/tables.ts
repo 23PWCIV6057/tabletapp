@@ -88,6 +88,7 @@ const GUEST_SESSION_KEY = "tabletapp_active_guest_session";
 export type GuestSession = {
   tableNumber: number;
   token: string;
+  capabilityToken?: string;
   activatedAt: number;
 };
 
