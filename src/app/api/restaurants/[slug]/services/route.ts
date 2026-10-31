@@ -148,7 +148,7 @@ export async function POST(
       table_number: tableNumber,
       type,
       status: "Pending",
-      created_at: Date.now(),
+      created_at: new Date().toISOString(),
     };
 
     const res = await fetch(`${SUPABASE_URL}/rest/v1/service_requests`, {

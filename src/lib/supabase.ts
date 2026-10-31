@@ -642,9 +642,13 @@ export async function syncServiceRequestToSupabase(
   if (typeof window !== "undefined") {
     try {
       const slug = getBrowserRestaurantSlug();
+      const capabilityToken = getGuestCapabilityToken();
       const res = await fetch(`/api/restaurants/${slug}/services`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(capabilityToken ? { "x-guest-capability": capabilityToken } : {}),
+        },
         body: JSON.stringify({
           id: req.id,
           restaurantId: restaurantId || req.restaurantId,
