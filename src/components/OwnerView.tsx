@@ -282,10 +282,7 @@ export default function OwnerView({
           <h2 className="font-display mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">
             Restaurant Owner Suite
           </h2>
-          <p className="mt-0.5 text-xs text-slate-600">
-            Control live menu pricing, stock availability, table QR stands, and anti-tamper
-            geofencing
-          </p>
+
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -337,14 +334,7 @@ export default function OwnerView({
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={onLockSession}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 transition"
-          >
-            <LockIcon size={13} />
-            <span>Lock Suite</span>
-          </button>
+
         </div>
       </header>
 

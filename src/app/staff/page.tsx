@@ -775,11 +775,7 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
                 <span className="font-semibold text-slate-800">
                   {geoConfig.restaurantName || "Heat Box Pizza"}
                 </span>
-                <span aria-hidden="true">•</span>
-                <span className="font-semibold text-emerald-700 flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  {isSupabaseConfigured() ? "Supabase Cloud Live" : "Local Sync Active"}
-                </span>
+
               </div>
             </div>
           </div>
