@@ -81,7 +81,9 @@ export async function fetchOrdersFromSupabase(restaurantId?: string, tableNumber
         // Guest Table-Specific Order Fetch
         const searchTable = Number(new URLSearchParams(window.location.search).get("table"));
         const table = tableNumber || searchTable || 1;
+        const capabilityToken = getGuestCapabilityToken();
         const res = await fetch(`/api/restaurants/${slug}/tables/${table}/orders`, {
+          headers: capabilityToken ? { "x-guest-capability": capabilityToken } : undefined,
           cache: "no-store",
         });
         if (res.ok) {
@@ -443,7 +445,12 @@ export async function syncOrderToSupabase(order: OrderCard, restaurantId?: strin
       const slug = getBrowserRestaurantSlug();
       const res = await fetch(`/api/restaurants/${slug}/orders`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(getGuestCapabilityToken()
+            ? { "x-guest-capability": getGuestCapabilityToken() as string }
+            : {}),
+        },
         body: JSON.stringify({
           id: order.id,
           orderNumber: order.orderNumber,
