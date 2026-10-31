@@ -17,6 +17,7 @@ import {
   getStoredMenu,
   getStoredOrders,
   getStoredServices,
+  mergeCloudOrdersWithLocalMeta,
   savePresetMenu,
   saveStoredMenu,
   saveStoredOrders,
@@ -70,24 +71,6 @@ import PinModal from "@/components/PinModal";
 import OfflineBanner from "@/components/OfflineBanner";
 import KitchenView from "@/components/KitchenView";
 import OwnerView from "@/components/OwnerView";
-
-function mergeCloudOrdersWithLocalMeta(
-  cloudOrders: OrderCard[],
-  localOrders: OrderCard[]
-): OrderCard[] {
-  const localMap = new Map(localOrders.map((o) => [o.id, o]));
-  return cloudOrders.map((co) => {
-    const loc = localMap.get(co.id);
-    if (!loc) return co;
-    return {
-      ...co,
-      geoVerified: co.geoVerified ?? loc.geoVerified,
-      distanceMeters: co.distanceMeters ?? loc.distanceMeters,
-      tableWasVacant: co.tableWasVacant ?? loc.tableWasVacant,
-      rejectedReason: co.rejectedReason ?? loc.rejectedReason,
-    };
-  });
-}
 
 export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: string } = {}) {
   const [activeTab, setActiveTab] = useState<"kitchen" | "owner">("kitchen");
@@ -147,9 +130,11 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
     setServiceRequests(getStoredServices());
     setTableSessions(getStoredTableSessions());
 
+    const currentTenantId = matched?.id;
+
     let pollingTimer: NodeJS.Timeout | null = null;
     if (isSupabaseConfigured()) {
-      fetchOrdersFromSupabase().then((cloudOrders) => {
+      fetchOrdersFromSupabase(currentTenantId).then((cloudOrders) => {
         if (cloudOrders && cloudOrders.length > 0) {
           setOrders((prev) => {
             const merged = mergeCloudOrdersWithLocalMeta(cloudOrders, prev);
@@ -158,7 +143,7 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
           });
         }
       });
-      fetchServicesFromSupabase().then((cloudServices) => {
+      fetchServicesFromSupabase(currentTenantId).then((cloudServices) => {
         if (cloudServices && cloudServices.length > 0) {
           setServiceRequests(cloudServices);
           saveStoredServices(cloudServices);
@@ -194,7 +179,7 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
 
       pollingTimer = setInterval(async () => {
         try {
-          const cloudOrders = await fetchOrdersFromSupabase();
+          const cloudOrders = await fetchOrdersFromSupabase(currentTenantId);
           if (cloudOrders) {
             setOrders((prev) => {
               const prevMap = new Map(prev.map((o) => [o.id, o]));
@@ -224,7 +209,7 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
             });
           }
 
-          const cloudServices = await fetchServicesFromSupabase();
+          const cloudServices = await fetchServicesFromSupabase(currentTenantId);
           if (cloudServices) {
             setServiceRequests((prev) => {
               const prevMap = new Map(prev.map((s) => [s.id, s]));
@@ -424,6 +409,14 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
           setOrders((prev) =>
             prev.some((o) => o.id === event.payload.id) ? prev : [event.payload, ...prev]
           );
+          setTableSessions((prev) => ({
+            ...prev,
+            [event.payload.table]: {
+              tableNumber: event.payload.table,
+              status: "ACTIVE_ORDER",
+              lastActivityAt: Date.now(),
+            },
+          }));
           playOrderChime();
           break;
         case "ORDER_STATUS_CHANGED":
@@ -457,7 +450,7 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
           }
           break;
       }
-    });
+    }, currentTenantId);
 
     return () => {
       if (pollingTimer) clearInterval(pollingTimer);
@@ -467,12 +460,6 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
   }, []);
 
   const handleUpdateMenu = (newMenu: MenuItem[]) => {
-    if (geoConfig.activePreset === "heatbox") {
-      setMenu(newMenu);
-      savePresetMenu(newMenu, "heatbox");
-      broadcastSyncEvent({ type: "MENU_UPDATED", payload: newMenu });
-      return;
-    }
 
     const prevMap = new Map(menu.map((m) => [m.id, m]));
     const nextMap = new Map(newMenu.map((m) => [m.id, m]));
@@ -480,7 +467,7 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
     for (const item of newMenu) {
       const prev = prevMap.get(item.id);
       if (!prev) {
-        syncNewMenuItemToSupabase(item);
+        syncNewMenuItemToSupabase(item, currentRestaurant?.id);
       } else if (
         prev.name !== item.name ||
         prev.price !== item.price ||

@@ -23,32 +23,7 @@ export const DEFAULT_GEO_CONFIG: GeoFenceConfig = {
   activePreset: "heatbox",
 };
 
-export const INITIAL_LEADERBOARD: LeaderboardEntry[] = [
-  {
-    id: "lb_1",
-    playerName: "Hamza K.",
-    tableNumber: 3,
-    game: "reflex",
-    score: 340,
-    createdAt: Date.now() - 45 * 60 * 1000,
-  },
-  {
-    id: "lb_2",
-    playerName: "Ayesha M.",
-    tableNumber: 7,
-    game: "reflex",
-    score: 290,
-    createdAt: Date.now() - 90 * 60 * 1000,
-  },
-  {
-    id: "lb_3",
-    playerName: "Zainab & Ali",
-    tableNumber: 5,
-    game: "bot_streak",
-    score: 4,
-    createdAt: Date.now() - 120 * 60 * 1000,
-  },
-];
+export const INITIAL_LEADERBOARD: LeaderboardEntry[] = [];
 
 export function getStoredLeaderboard(): LeaderboardEntry[] {
   if (typeof window === "undefined") return INITIAL_LEADERBOARD;
@@ -101,13 +76,6 @@ export function getStoredGeoConfig(): GeoFenceConfig {
       return DEFAULT_GEO_CONFIG;
     }
     const parsed = JSON.parse(raw);
-    if (
-      typeof parsed?.restaurantName === "string" &&
-      parsed.restaurantName.toLowerCase().includes("sunshine")
-    ) {
-      localStorage.setItem(STORAGE_GEO_KEY, JSON.stringify(DEFAULT_GEO_CONFIG));
-      return DEFAULT_GEO_CONFIG;
-    }
     return {
       ...DEFAULT_GEO_CONFIG,
       ...parsed,

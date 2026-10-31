@@ -9,9 +9,28 @@ const STORAGE_HEATBOX_MENU_KEY = "tabletapp_menu_heatbox_v1";
 
 export const initialMenuData: MenuItem[] = HEATBOX_MENU_DATA;
 
-export const initialOrdersData: OrderCard[] = [];
-
-export const initialServicesData: ServiceRequest[] = [];
+/**
+ * Reconciles cloud orders with local active order state so local metadata
+ * (e.g. optimistic geo verification or custom client status) isn't wiped out during sync.
+ */
+export function mergeCloudOrdersWithLocalMeta(
+  cloudOrders: OrderCard[],
+  localOrders: OrderCard[]
+): OrderCard[] {
+  const localMap = new Map(localOrders.map((o) => [o.id, o]));
+  return cloudOrders.map((cloud) => {
+    const local = localMap.get(cloud.id);
+    if (!local) return cloud;
+    return {
+      ...cloud,
+      geoVerified: cloud.geoVerified !== undefined ? cloud.geoVerified : local.geoVerified,
+      distanceMeters:
+        cloud.distanceMeters !== undefined ? cloud.distanceMeters : local.distanceMeters,
+      tableWasVacant:
+        cloud.tableWasVacant !== undefined ? cloud.tableWasVacant : local.tableWasVacant,
+    };
+  });
+}
 
 export function getStoredMenu(): MenuItem[] {
   if (typeof window === "undefined") return initialMenuData;
@@ -64,16 +83,13 @@ export function savePresetMenu(menu: MenuItem[], preset: "default" | "heatbox" =
 }
 
 export function getStoredOrders(): OrderCard[] {
-  if (typeof window === "undefined") return initialOrdersData;
+  if (typeof window === "undefined") return [];
   try {
     const data = localStorage.getItem(STORAGE_ORDERS_KEY);
-    if (!data) {
-      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(initialOrdersData));
-      return initialOrdersData;
-    }
+    if (!data) return [];
     return JSON.parse(data);
   } catch {
-    return initialOrdersData;
+    return [];
   }
 }
 
@@ -83,16 +99,13 @@ export function saveStoredOrders(orders: OrderCard[]) {
 }
 
 export function getStoredServices(): ServiceRequest[] {
-  if (typeof window === "undefined") return initialServicesData;
+  if (typeof window === "undefined") return [];
   try {
     const data = localStorage.getItem(STORAGE_SERVICES_KEY);
-    if (!data) {
-      localStorage.setItem(STORAGE_SERVICES_KEY, JSON.stringify(initialServicesData));
-      return initialServicesData;
-    }
+    if (!data) return [];
     return JSON.parse(data);
   } catch {
-    return initialServicesData;
+    return [];
   }
 }
 

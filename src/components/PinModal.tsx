@@ -37,7 +37,7 @@ export default function PinModal({ requestedRole, isOpen, onSuccess, onClose, re
         }, 600);
       }
     },
-    [requestedRole, onSuccess]
+    [requestedRole, onSuccess, restaurantSlug]
   );
 
   const handleDigit = useCallback(

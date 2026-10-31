@@ -2,8 +2,24 @@ import crypto from "crypto";
 import { NextRequest } from "next/server";
 
 export const DEV_COOKIE_NAME = "table_tapp_dev_session";
-const DEV_PASSWORD = process.env.DEV_PORTAL_PASSWORD || "tabledev2026";
-const DEV_SECRET = process.env.DEV_AUTH_SECRET || "table_tapp_super_dev_secret_key_982341";
+
+function getDevPassword(): string {
+  const envPass = process.env.DEV_PORTAL_PASSWORD;
+  if (envPass) return envPass;
+  if (process.env.NODE_ENV === "production" && process.env.VERCEL) {
+    throw new Error("CRITICAL: DEV_PORTAL_PASSWORD must be configured in environment");
+  }
+  return "tabledev2026";
+}
+
+function getDevSecret(): string {
+  const envSecret = process.env.DEV_AUTH_SECRET;
+  if (envSecret) return envSecret;
+  if (process.env.NODE_ENV === "production" && process.env.VERCEL) {
+    throw new Error("CRITICAL: DEV_AUTH_SECRET must be configured in environment");
+  }
+  return "table_tapp_super_dev_secret_key_982341";
+}
 
 // In-memory rate limiting against BurpSuite / Hydra dictionary attacks
 // Max 5 attempts per IP per 15 minutes
@@ -46,8 +62,9 @@ export function resetAttempts(clientIp: string) {
 // Timing-safe password comparison
 export function verifyDeveloperPassword(inputPassword: string): boolean {
   if (typeof inputPassword !== "string") return false;
+  const devPassword = getDevPassword();
   const inputBuffer = Buffer.from(inputPassword.trim());
-  const devBuffer = Buffer.from(DEV_PASSWORD.trim());
+  const devBuffer = Buffer.from(devPassword.trim());
 
   if (inputBuffer.length !== devBuffer.length) {
     // Constant time dummy compare to avoid timing leak
@@ -63,7 +80,7 @@ export function createDeveloperToken(): string {
   const timestamp = Date.now();
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload = `dev:${timestamp}:${nonce}`;
-  const signature = crypto.createHmac("sha256", DEV_SECRET).update(payload).digest("hex");
+  const signature = crypto.createHmac("sha256", getDevSecret()).update(payload).digest("hex");
   return `${payload}:${signature}`;
 }
 
@@ -82,7 +99,7 @@ export function verifyDeveloperToken(token: string | undefined): boolean {
   }
 
   const payload = `${role}:${timestampStr}:${nonce}`;
-  const expectedSig = crypto.createHmac("sha256", DEV_SECRET).update(payload).digest("hex");
+  const expectedSig = crypto.createHmac("sha256", getDevSecret()).update(payload).digest("hex");
 
   const sigA = Buffer.from(receivedSig);
   const sigB = Buffer.from(expectedSig);

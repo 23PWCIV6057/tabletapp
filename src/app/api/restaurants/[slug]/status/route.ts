@@ -26,13 +26,22 @@ export async function GET(
     const menus = await fetchCustomMenusFromSupabase();
     const customMenu =
       menus[found.slug.toLowerCase()] || menus[found.id.toLowerCase()] || null;
+
+    // Security: sanitize credentials before returning to public client
+    const {
+      staffPin: _staffPin,
+      ownerPin: _ownerPin,
+      wifiPassword: _wifiPassword,
+      ...publicRestaurant
+    } = found;
+
     return NextResponse.json({
       success: true,
       id: found.id,
       slug: found.slug,
       name: found.name,
       status: found.status || "active",
-      restaurant: found,
+      restaurant: publicRestaurant,
       menu: customMenu,
     });
   }

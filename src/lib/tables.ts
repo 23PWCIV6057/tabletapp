@@ -58,20 +58,7 @@ export function getTableByToken(token: string): TableEntry | null {
   const clean = token.trim();
   const tables = getStoredTables();
   const exact = tables.find((t) => t.token === clean);
-  if (exact) return exact;
-
-  // Fallback for valid rotated token format tok_t<1..16>_<alphanumeric> across devices
-  const match = /^tok_t(\d{1,2})_[a-z0-9]{4,12}$/i.exec(clean);
-  if (match) {
-    const num = Number(match[1]);
-    if (num >= 1 && num <= 16) {
-      const base = tables.find((t) => t.tableNumber === num);
-      return base
-        ? { ...base, token: clean }
-        : { tableNumber: num, token: clean, name: `Table ${num}` };
-    }
-  }
-  return null;
+  return exact || null;
 }
 
 export function getTokenForTable(tableNumber: number): string {
@@ -142,12 +129,6 @@ export function getInitialTableSessions(): Record<number, TableSession> {
       lastActivityAt: Date.now(),
     };
   }
-  // Initialize sample active tables based on initial mock orders (Tables 3, 6, 7, 8, 9)
-  map[3] = { tableNumber: 3, status: "ACTIVE_ORDER", seatedAt: Date.now() - 30 * 60 * 1000, lastActivityAt: Date.now() - 2 * 60 * 1000 };
-  map[6] = { tableNumber: 6, status: "BILL_REQUESTED", seatedAt: Date.now() - 45 * 60 * 1000, lastActivityAt: Date.now() - 5 * 60 * 1000 };
-  map[7] = { tableNumber: 7, status: "ACTIVE_ORDER", seatedAt: Date.now() - 15 * 60 * 1000, lastActivityAt: Date.now() - 3 * 60 * 1000 };
-  map[8] = { tableNumber: 8, status: "SEATED", seatedAt: Date.now() - 10 * 60 * 1000, lastActivityAt: Date.now() - 1 * 60 * 1000 };
-  map[9] = { tableNumber: 9, status: "ACTIVE_ORDER", seatedAt: Date.now() - 20 * 60 * 1000, lastActivityAt: Date.now() - 2 * 60 * 1000 };
   return map;
 }
 

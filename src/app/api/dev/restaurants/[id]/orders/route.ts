@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isRequestDevAuthenticated } from "@/lib/devAuth";
-import { findRestaurantBySlugOrKey } from "@/lib/restaurants";
+import { findRestaurantBySlugOrKey, fetchFleetFromSupabase } from "@/lib/restaurants";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_KEY =
@@ -25,6 +25,7 @@ export async function GET(
     return NextResponse.json({ success: false, error: "Unauthorized access." }, { status: 401 });
   }
 
+  await fetchFleetFromSupabase();
   const { id } = await params;
   const restaurant = findRestaurantBySlugOrKey(id);
   if (!restaurant) {
@@ -66,7 +67,7 @@ export async function GET(
           `"${ord.order_number}"`,
           `"${ord.table_number}"`,
           `"${ord.status}"`,
-          `"${ord.total_amount}"`,
+          `"${ord.total}"`,
           `"${itemsStr.replace(/"/g, '""')}"`,
           `"${ord.created_at}"`,
         ].join(",")
@@ -98,6 +99,7 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: "Unauthorized access." }, { status: 401 });
   }
 
+  await fetchFleetFromSupabase();
   const { id } = await params;
   const restaurant = findRestaurantBySlugOrKey(id);
   if (!restaurant) {

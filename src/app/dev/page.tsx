@@ -111,7 +111,6 @@ export default function DeveloperPortalPage() {
       if (data.success && Array.isArray(data.restaurants)) {
         setRestaurants(data.restaurants);
         saveStoredRestaurants(data.restaurants);
-        clearRestaurantLocalData("sunshine-bistro", "0bd4a4f2-4d44-4f0c-a03c-e10252610e7a");
       }
     } catch {
       // Ignore

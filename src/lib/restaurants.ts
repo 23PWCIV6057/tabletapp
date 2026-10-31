@@ -53,23 +53,6 @@ function getSupabaseHeaders() {
   };
 }
 
-export function isUnauthorizedLegacyRestaurant(r?: {
-  id?: string;
-  slug?: string;
-  name?: string;
-} | null): boolean {
-  if (!r) return true;
-  const id = (r.id || "").toLowerCase();
-  const slug = (r.slug || "").toLowerCase();
-  const name = (r.name || "").toLowerCase();
-  return (
-    id === "0bd4a4f2-4d44-4f0c-a03c-e10252610e7a" ||
-    slug === "sunshine-bistro" ||
-    slug.includes("sunshine") ||
-    name.includes("sunshine")
-  );
-}
-
 // shortcut: stores multi-tenant restaurant fleet JSON in dining_tables(table_number=3).name so RLS-enabled anon key can read/write reliably
 export async function fetchFleetFromSupabase(): Promise<Restaurant[]> {
   if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes("your-project-id")) {
@@ -86,9 +69,8 @@ export async function fetchFleetFromSupabase(): Promise<Restaurant[]> {
       if (typeof rawName === "string" && rawName.trim().startsWith("[")) {
         const parsed: Restaurant[] = JSON.parse(rawName);
         if (Array.isArray(parsed)) {
-          const clean = parsed.filter((r) => !isUnauthorizedLegacyRestaurant(r));
-          serverRestaurantsCache = clean;
-          return clean;
+          serverRestaurantsCache = parsed;
+          return parsed;
         }
       }
     }
@@ -99,8 +81,7 @@ export async function fetchFleetFromSupabase(): Promise<Restaurant[]> {
 }
 
 export async function syncFleetToSupabase(restaurants: Restaurant[]): Promise<boolean> {
-  const clean = restaurants.filter((r) => !isUnauthorizedLegacyRestaurant(r));
-  serverRestaurantsCache = clean;
+  serverRestaurantsCache = restaurants;
   if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes("your-project-id")) {
     return false;
   }
@@ -108,7 +89,7 @@ export async function syncFleetToSupabase(restaurants: Restaurant[]): Promise<bo
     const res = await fetch(`${SUPABASE_URL}/rest/v1/dining_tables?table_number=eq.3`, {
       method: "PATCH",
       headers: getSupabaseHeaders(),
-      body: JSON.stringify({ name: JSON.stringify(clean) }),
+      body: JSON.stringify({ name: JSON.stringify(restaurants) }),
     });
     return res.ok;
   } catch {
@@ -162,7 +143,7 @@ export async function syncCustomMenusToSupabase(menus: Record<string, MenuItem[]
 
 export function getStoredRestaurants(): Restaurant[] {
   if (typeof window === "undefined") {
-    return serverRestaurantsCache.filter((r) => !isUnauthorizedLegacyRestaurant(r));
+    return serverRestaurantsCache;
   }
   try {
     // Clean up legacy storage keys
@@ -171,31 +152,25 @@ export function getStoredRestaurants(): Restaurant[] {
 
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      const initial = serverRestaurantsCache.filter((r) => !isUnauthorizedLegacyRestaurant(r));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-      return initial;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(serverRestaurantsCache));
+      return serverRestaurantsCache;
     }
     const parsed: Restaurant[] = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
       return serverRestaurantsCache;
     }
-    const clean = parsed.filter((r) => !isUnauthorizedLegacyRestaurant(r));
-    if (clean.length !== parsed.length) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
-    }
-    return clean;
+    return parsed;
   } catch {
     return serverRestaurantsCache;
   }
 }
 
 export function saveStoredRestaurants(restaurants: Restaurant[]) {
-  const clean = restaurants.filter((r) => !isUnauthorizedLegacyRestaurant(r));
-  serverRestaurantsCache = clean;
+  serverRestaurantsCache = restaurants;
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
-    for (const r of clean) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(restaurants));
+    for (const r of restaurants) {
       setRestaurantSuspensionFlag(r.slug, r.id, r.status === "suspended");
     }
   } catch {

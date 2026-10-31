@@ -26,13 +26,14 @@ function getHeaders() {
 }
 
 // REST API Operations
-export async function fetchOrdersFromSupabase(): Promise<OrderCard[] | null> {
+export async function fetchOrdersFromSupabase(restaurantId?: string): Promise<OrderCard[] | null> {
   if (!isSupabaseConfigured()) return null;
   try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/orders?select=*,order_items(*)&order=created_at.desc&limit=50`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
+    let query = `${SUPABASE_URL}/rest/v1/orders?select=*,order_items(*)&order=created_at.desc&limit=50`;
+    if (restaurantId) {
+      query += `&restaurant_id=eq.${restaurantId}`;
+    }
+    const res = await fetch(query, { headers: getHeaders(), cache: "no-store" });
     if (!res.ok) return null;
     const data = await res.json();
     return data.map((rec: Record<string, unknown>) => ({
@@ -65,13 +66,14 @@ export async function fetchOrdersFromSupabase(): Promise<OrderCard[] | null> {
   }
 }
 
-export async function fetchServicesFromSupabase(): Promise<ServiceRequest[] | null> {
+export async function fetchServicesFromSupabase(restaurantId?: string): Promise<ServiceRequest[] | null> {
   if (!isSupabaseConfigured()) return null;
   try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/service_requests?select=*&order=created_at.desc&limit=30`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
+    let query = `${SUPABASE_URL}/rest/v1/service_requests?select=*&order=created_at.desc&limit=30`;
+    if (restaurantId) {
+      query += `&restaurant_id=eq.${restaurantId}`;
+    }
+    const res = await fetch(query, { headers: getHeaders(), cache: "no-store" });
     if (!res.ok) return null;
     const data = await res.json();
     return data.map((rec: Record<string, unknown>) => ({
@@ -268,7 +270,7 @@ export async function fetchLeaderboardFromSupabase(): Promise<LeaderboardEntry[]
   }
 }
 
-export async function syncOrderToSupabase(order: OrderCard): Promise<boolean> {
+export async function syncOrderToSupabase(order: OrderCard, restaurantId?: string): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
@@ -277,11 +279,15 @@ export async function syncOrderToSupabase(order: OrderCard): Promise<boolean> {
       body: JSON.stringify({
         id: order.id,
         order_number: order.orderNumber,
+        restaurant_id: restaurantId || null,
         table_number: order.table,
         subtotal: order.subtotal,
         service_fee: order.serviceFee,
         total: order.total,
         status: order.status,
+        geo_verified: order.geoVerified ?? true,
+        distance_meters: order.distanceMeters ?? null,
+        table_was_vacant: order.tableWasVacant ?? false,
         created_at: new Date(order.createdAt).toISOString(),
         updated_at: new Date(order.updatedAt).toISOString(),
       }),
@@ -291,7 +297,7 @@ export async function syncOrderToSupabase(order: OrderCard): Promise<boolean> {
 
     // Insert order items
     if (order.items.length > 0) {
-      await fetch(`${SUPABASE_URL}/rest/v1/order_items`, {
+      const itemsRes = await fetch(`${SUPABASE_URL}/rest/v1/order_items`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify(
@@ -307,6 +313,11 @@ export async function syncOrderToSupabase(order: OrderCard): Promise<boolean> {
           }))
         ),
       });
+
+      if (!itemsRes.ok) {
+        console.warn("Failed to insert order items:", await itemsRes.text());
+        return false;
+      }
     }
 
     return true;
@@ -350,7 +361,10 @@ export async function syncOrderTransferToSupabase(orderId: string, newTable: num
   }
 }
 
-export async function syncServiceRequestToSupabase(req: ServiceRequest): Promise<boolean> {
+export async function syncServiceRequestToSupabase(
+  req: ServiceRequest,
+  restaurantId?: string
+): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/service_requests`, {
@@ -358,6 +372,7 @@ export async function syncServiceRequestToSupabase(req: ServiceRequest): Promise
       headers: getHeaders(),
       body: JSON.stringify({
         id: req.id,
+        restaurant_id: restaurantId || null,
         table_number: req.table,
         type: req.type,
         status: req.status,
@@ -410,13 +425,15 @@ export async function syncMenuItemUpdateToSupabase(item: MenuItem): Promise<bool
 
 export async function syncNewMenuItemToSupabase(
   item: MenuItem,
-  restaurantId = "0bd4a4f2-4d44-4f0c-a03c-e10252610e7a"
+  restaurantId?: string
 ): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
   try {
-    const catRes = await fetch(`${SUPABASE_URL}/rest/v1/categories?name=eq.${item.category}`, {
-      headers: getHeaders(),
-    });
+    const targetRestId = restaurantId || "b7e0129a-2415-469b-8f35-908078c139b4";
+    const catRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/categories?name=eq.${encodeURIComponent(item.category)}`,
+      { headers: getHeaders() }
+    );
     let categoryId: string | null = null;
     if (catRes.ok) {
       const cats = await catRes.json();
@@ -427,7 +444,7 @@ export async function syncNewMenuItemToSupabase(
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({
-        restaurant_id: restaurantId,
+        restaurant_id: targetRestId,
         category_id: categoryId,
         name: item.name,
         description: packDescriptionWithImage(item.description, item.imageUrl),
@@ -457,7 +474,10 @@ export async function syncDeleteMenuItemFromSupabase(itemId: number): Promise<bo
 }
 
 // Realtime WebSocket Subscription with Auto-Reconnect & Phoenix CDC Protocol
-export function subscribeToSupabaseRealtime(onEvent: (event: SyncEvent) => void): () => void {
+export function subscribeToSupabaseRealtime(
+  onEvent: (event: SyncEvent) => void,
+  restaurantId?: string
+): () => void {
   if (!isSupabaseConfigured() || typeof window === "undefined") {
     return () => {};
   }
@@ -509,10 +529,15 @@ export function subscribeToSupabaseRealtime(onEvent: (event: SyncEvent) => void)
             const change = data.payload?.data;
             if (!change) return;
 
+            // Strict Tenant Isolation: ignore events from other restaurants
+            if (restaurantId && change.record?.restaurant_id && change.record.restaurant_id !== restaurantId) {
+              return;
+            }
+
             if (change.table === "orders") {
               if (change.type === "INSERT") {
-                // Fetch full order to ensure order items are populated
-                fetchOrdersFromSupabase().then((orders) => {
+                // Fetch full order for this specific tenant to ensure order items are populated
+                fetchOrdersFromSupabase(restaurantId).then((orders) => {
                   if (orders && orders.length > 0) {
                     const target = orders.find((o) => o.id === change.record.id) || orders[0];
                     onEvent({ type: "NEW_ORDER", payload: target });

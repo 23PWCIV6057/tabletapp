@@ -20,6 +20,7 @@ import {
   getStoredMenu,
   getStoredOrders,
   getStoredServices,
+  mergeCloudOrdersWithLocalMeta,
   saveStoredMenu,
   saveStoredOrders,
   saveStoredServices,
@@ -83,24 +84,6 @@ import GuestView from "@/components/GuestView";
 import QRCodeView from "@/components/QRCodeView";
 import CafeArcadeModal from "@/components/CafeArcadeModal";
 
-function mergeCloudOrdersWithLocalMeta(
-  cloudOrders: OrderCard[],
-  localOrders: OrderCard[]
-): OrderCard[] {
-  const localMap = new Map(localOrders.map((o) => [o.id, o]));
-  return cloudOrders.map((co) => {
-    const loc = localMap.get(co.id);
-    if (!loc) return co;
-    return {
-      ...co,
-      geoVerified: co.geoVerified ?? loc.geoVerified,
-      distanceMeters: co.distanceMeters ?? loc.distanceMeters,
-      tableWasVacant: co.tableWasVacant ?? loc.tableWasVacant,
-      rejectedReason: co.rejectedReason ?? loc.rejectedReason,
-    };
-  });
-}
-
 export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {}) {
   const [isStaff, setIsStaff] = useState(false);
 
@@ -160,15 +143,6 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
             activatedAt: Date.now(),
           });
         }
-      } else if (urlTable && !isNaN(Number(urlTable))) {
-        const resolvedTable = Math.min(16, Math.max(1, Number(urlTable)));
-        setTableNumber(resolvedTable);
-        setViewMode("table");
-        setActiveGuestSession({
-          tableNumber: resolvedTable,
-          token: getTokenForTable(resolvedTable),
-          activatedAt: Date.now(),
-        });
       } else {
         const existingSession = getActiveGuestSession();
         if (existingSession) {
@@ -213,9 +187,11 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
     setTableSessions(getStoredTableSessions());
     setLeaderboard(getStoredLeaderboard());
 
+    let currentTenantId = matched?.id;
+
     let pollingTimer: NodeJS.Timeout | null = null;
     if (isSupabaseConfigured()) {
-      fetchOrdersFromSupabase().then((cloudOrders) => {
+      fetchOrdersFromSupabase(currentTenantId).then((cloudOrders) => {
         if (cloudOrders && cloudOrders.length > 0) {
           setOrders((prev) => {
             const merged = mergeCloudOrdersWithLocalMeta(cloudOrders, prev);
@@ -262,7 +238,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
       // 5s background sync for guest order tracker & live menu updates
       pollingTimer = setInterval(async () => {
         try {
-          const cloudOrders = await fetchOrdersFromSupabase();
+          const cloudOrders = await fetchOrdersFromSupabase(currentTenantId);
           if (cloudOrders) {
             setOrders((prev) => {
               const prevMap = new Map(prev.map((o) => [o.id, o]));
@@ -472,7 +448,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
           }
           break;
       }
-    });
+    }, currentTenantId);
 
     return () => {
       if (pollingTimer) clearInterval(pollingTimer);
@@ -549,6 +525,14 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
   }, [isScanModalOpen, cameraActive]);
 
   const handleSeatAtTable = (num: number) => {
+    // Customers can only be seated if they don't already have a table session,
+    // or if action is initiated by staff override.
+    if (tableNumber !== null && !isStaff) {
+      alert(`You are currently checked into Table ${tableNumber}. Table transfers must be processed by your server or kitchen staff.`);
+      setIsScanModalOpen(false);
+      setCameraActive(false);
+      return;
+    }
     const validNum = Math.min(16, Math.max(1, num));
     setTableNumber(validNum);
     setViewMode("table");
@@ -630,7 +614,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
     setOrders(nextOrders);
     saveStoredOrders(nextOrders);
     broadcastSyncEvent({ type: "NEW_ORDER", payload: newOrder });
-    syncOrderToSupabase(newOrder);
+    syncOrderToSupabase(newOrder, currentRestaurant?.id);
 
     handleUpdateTableStatus(activeTable, "ACTIVE_ORDER");
   };
@@ -653,7 +637,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
     setServiceRequests(nextServices);
     saveStoredServices(nextServices);
     broadcastSyncEvent({ type: "NEW_SERVICE_REQUEST", payload: newRequest });
-    syncServiceRequestToSupabase(newRequest);
+    syncServiceRequestToSupabase(newRequest, currentRestaurant?.id);
 
     if (type === "Request Bill") {
       handleUpdateTableStatus(activeTable, "BILL_REQUESTED");
@@ -851,11 +835,17 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
 
                 <button
                   type="button"
-                  onClick={() => setIsScanModalOpen(true)}
+                  onClick={() => {
+                    if (tableNumber !== null && !isStaff) {
+                      setViewMode("table");
+                    } else {
+                      setIsScanModalOpen(true);
+                    }
+                  }}
                   className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-slate-950 py-3.5 text-xs font-black text-white shadow-md hover:bg-slate-800 active:scale-95 transition"
                 >
                   <QrCodeIcon size={16} className="text-amber-400" />
-                  <span>{tableNumber ? `Change Table (Seated at #${tableNumber})` : "Scan QR & Sit at Table"}</span>
+                  <span>{tableNumber ? `Seated at Table #${tableNumber} (Locked)` : "Scan QR & Sit at Table"}</span>
                 </button>
               </div>
 
