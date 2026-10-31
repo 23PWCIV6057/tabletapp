@@ -53,7 +53,7 @@ export async function GET(
     }
 
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/service_requests?restaurant_id=eq.${restaurant.id}&status=eq.Pending&select=*&order=created_at.desc&limit=50`,
+      `${SUPABASE_URL}/rest/v1/service_requests?restaurant_id=eq.${restaurant.id}&select=*&order=created_at.desc&limit=50`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
