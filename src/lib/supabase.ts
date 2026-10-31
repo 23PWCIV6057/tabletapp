@@ -121,11 +121,14 @@ export async function fetchOrdersFromSupabase(restaurantId?: string, tableNumber
           if (body.success && Array.isArray(body.orders)) return body.orders;
         }
       } else {
-        // Guest Table-Specific Order Fetch
+        // Guest Table-Specific Order Fetch (or restaurant orders if table unselected)
         const searchTable = Number(new URLSearchParams(window.location.search).get("table"));
-        const table = tableNumber || searchTable || 1;
+        const table = tableNumber || searchTable || undefined;
         const capabilityToken = getGuestCapabilityToken();
-        const res = await fetch(`/api/restaurants/${slug}/tables/${table}/orders`, {
+        const endpoint = table
+          ? `/api/restaurants/${slug}/tables/${table}/orders`
+          : `/api/restaurants/${slug}/orders`;
+        const res = await fetch(endpoint, {
           headers: capabilityToken ? { "x-guest-capability": capabilityToken } : undefined,
           cache: "no-store",
         });

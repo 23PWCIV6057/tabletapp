@@ -19,22 +19,38 @@ export function mergeCloudOrdersWithLocalMeta(
 ): OrderCard[] {
   const localMap = new Map(localOrders.map((o) => [o.id, o]));
   const seen = new Set<string>();
-  return cloudOrders.filter((cloud) => {
-    if (seen.has(cloud.id)) return false;
-    seen.add(cloud.id);
-    return true;
-  }).map((cloud) => {
-    const local = localMap.get(cloud.id);
-    if (!local) return cloud;
-    return {
-      ...cloud,
-      geoVerified: cloud.geoVerified !== undefined ? cloud.geoVerified : local.geoVerified,
-      distanceMeters:
-        cloud.distanceMeters !== undefined ? cloud.distanceMeters : local.distanceMeters,
-      tableWasVacant:
-        cloud.tableWasVacant !== undefined ? cloud.tableWasVacant : local.tableWasVacant,
-    };
+
+  // Process all cloud orders, inheriting local meta if present
+  const mergedCloud = cloudOrders
+    .filter((cloud) => {
+      if (seen.has(cloud.id)) return false;
+      seen.add(cloud.id);
+      return true;
+    })
+    .map((cloud) => {
+      const local = localMap.get(cloud.id);
+      if (!local) return cloud;
+      return {
+        ...cloud,
+        geoVerified: cloud.geoVerified !== undefined ? cloud.geoVerified : local.geoVerified,
+        distanceMeters:
+          cloud.distanceMeters !== undefined ? cloud.distanceMeters : local.distanceMeters,
+        tableWasVacant:
+          cloud.tableWasVacant !== undefined ? cloud.tableWasVacant : local.tableWasVacant,
+      };
+    });
+
+  // Preserve any local order not yet in cloudOrders (e.g. recently placed or active)
+  const now = Date.now();
+  const unmergedLocal = localOrders.filter((local) => {
+    if (seen.has(local.id)) return false;
+    const isRecent = !local.createdAt || now - local.createdAt < 30 * 60 * 1000;
+    const isActive =
+      local.status !== "Served" && local.status !== "Archived" && local.status !== "Rejected";
+    return isRecent || isActive;
   });
+
+  return [...unmergedLocal, ...mergedCloud];
 }
 
 export function getStoredMenu(): MenuItem[] {

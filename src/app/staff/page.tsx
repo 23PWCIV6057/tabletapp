@@ -221,26 +221,36 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
           const cloudServices = await fetchServicesFromSupabase(currentTenantId);
           if (cloudServices) {
             setServiceRequests((prev) => {
-              const prevMap = new Map(prev.map((s) => [s.id, s]));
+              const cloudMap = new Map(cloudServices.map((s) => [s.id, s]));
               let hasChanges = false;
               let hasNewPending = false;
 
               for (const cs of cloudServices) {
-                const existing = prevMap.get(cs.id);
+                const existing = prev.find((s) => s.id === cs.id);
                 if (!existing && cs.status === "Pending") {
                   hasChanges = true;
                   hasNewPending = true;
                 } else if (existing && existing.status !== cs.status) {
                   hasChanges = true;
                 }
-
               }
+
+              const now = Date.now();
+              const pendingLocal = prev.filter(
+                (s) =>
+                  !cloudMap.has(s.id) &&
+                  s.status === "Pending" &&
+                  now - s.createdAt < 30 * 60 * 1000
+              );
+
+              if (pendingLocal.length > 0) hasChanges = true;
 
               if (!hasChanges && cloudServices.length === prev.length) return prev;
               if (hasNewPending) playAlertChime();
 
-              saveStoredServices(cloudServices);
-              return cloudServices;
+              const mergedServices = [...pendingLocal, ...cloudServices];
+              saveStoredServices(mergedServices);
+              return mergedServices;
             });
           }
 

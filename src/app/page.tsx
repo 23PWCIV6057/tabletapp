@@ -114,6 +114,8 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const tableNumberRef = useRef<number | null>(tableNumber);
+  tableNumberRef.current = tableNumber;
   const lastOrderFingerprintRef = useRef<{ value: string; at: number } | null>(null);
   const lastServiceFingerprintRef = useRef<{ value: string; at: number } | null>(null);
 
@@ -195,7 +197,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
 
     let pollingTimer: NodeJS.Timeout | null = null;
     if (isSupabaseConfigured()) {
-      fetchOrdersFromSupabase(currentTenantId).then((cloudOrders) => {
+      fetchOrdersFromSupabase(currentTenantId, tableNumberRef.current || undefined).then((cloudOrders) => {
         if (cloudOrders && cloudOrders.length > 0) {
           setOrders((prev) => {
             const merged = mergeCloudOrdersWithLocalMeta(cloudOrders, prev);
@@ -242,7 +244,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
       // 5s background sync for guest order tracker & live menu updates
       pollingTimer = setInterval(async () => {
         try {
-          const cloudOrders = await fetchOrdersFromSupabase(currentTenantId);
+          const cloudOrders = await fetchOrdersFromSupabase(currentTenantId, tableNumberRef.current || undefined);
           if (cloudOrders) {
             setOrders((prev) => {
               const prevMap = new Map(prev.map((o) => [o.id, o]));

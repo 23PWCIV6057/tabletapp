@@ -217,60 +217,69 @@ export default function GuestView({
     if (cart.length === 0 || checkoutInFlightRef.current) return;
     checkoutInFlightRef.current = true;
 
-    const alreadyVerifiedCode =
-      typeof window !== "undefined" &&
-      sessionStorage.getItem("tabletapp_dinein_verified") === dailyCode;
-
-    if (!geoConfig || !geoConfig.enabled || securityMode === "kds_only" || alreadyVerifiedCode) {
-      onPlaceOrder(cart, { geoVerified: true });
-      setCart([]);
-      setIsMobileCartOpen(false);
-      return;
-    }
-
-    // Mode 1: Daily Dine-In Code (Zero GPS popup, zero indoor GPS drift)
-    if (securityMode === "dine_in_code") {
-      setShowBypassInput(true);
-      setGeoBlockedModal({
-        message: `Enter Today's Dine-In Code displayed on the ${restaurantName} Wi-Fi sign / counter board (or ask your server) to send your order to the kitchen.`,
-      });
-      return;
-    }
-
-    // Mode 2: Smart Hybrid (GPS + Automatic Dine-In Code Fallback if GPS drifts indoors)
-    setIsVerifyingLocation(true);
     try {
-      const check = await verifyUserWithinRestaurant(geoConfig);
-      setIsVerifyingLocation(false);
+      const alreadyVerifiedCode =
+        typeof window !== "undefined" &&
+        sessionStorage.getItem("tabletapp_dinein_verified") === dailyCode;
 
-      if (!check.success) {
-        if (!geoConfig.strictMode && check.reason !== "OUTSIDE_RADIUS") {
-          onPlaceOrder(cart, { geoVerified: false });
-          setCart([]);
-          setIsMobileCartOpen(false);
-          return;
-        }
-        setShowBypassInput(true);
-        setGeoBlockedModal({
-          distanceMeters: check.distanceMeters,
-          message:
-            "Indoor GPS signal drifted or is unavailable. Enter Today's Dine-In Code (posted on the café Wi-Fi board or ask your waiter) to place your order immediately.",
-          isPermissionError: check.reason !== "OUTSIDE_RADIUS",
-        });
+      if (!geoConfig || !geoConfig.enabled || securityMode === "kds_only" || alreadyVerifiedCode) {
+        onPlaceOrder(cart, { geoVerified: true });
+        setCart([]);
+        setIsMobileCartOpen(false);
         return;
       }
 
-      onPlaceOrder(cart, { geoVerified: true, distanceMeters: check.distanceMeters });
-      setCart([]);
-      setIsMobileCartOpen(false);
-    } catch {
-      setIsVerifyingLocation(false);
-      setShowBypassInput(true);
-      setGeoBlockedModal({
-        message:
-          "Indoor GPS signal unavailable. Enter Today's Dine-In Code (posted on the café Wi-Fi board or ask your waiter) to place your order.",
-        isPermissionError: true,
-      });
+      // Mode 1: Daily Dine-In Code (Zero GPS popup, zero indoor GPS drift)
+      if (securityMode === "dine_in_code") {
+        setShowBypassInput(true);
+        setGeoBlockedModal({
+          message: `Enter Today's Dine-In Code displayed on the ${restaurantName} Wi-Fi sign / counter board (or ask your server) to send your order to the kitchen.`,
+        });
+        checkoutInFlightRef.current = false;
+        return;
+      }
+
+      // Mode 2: Smart Hybrid (GPS + Automatic Dine-In Code Fallback if GPS drifts indoors)
+      setIsVerifyingLocation(true);
+      try {
+        const check = await verifyUserWithinRestaurant(geoConfig);
+        setIsVerifyingLocation(false);
+
+        if (!check.success) {
+          if (!geoConfig.strictMode && check.reason !== "OUTSIDE_RADIUS") {
+            onPlaceOrder(cart, { geoVerified: false });
+            setCart([]);
+            setIsMobileCartOpen(false);
+            return;
+          }
+          setShowBypassInput(true);
+          setGeoBlockedModal({
+            distanceMeters: check.distanceMeters,
+            message:
+              "Indoor GPS signal drifted or is unavailable. Enter Today's Dine-In Code (posted on the café Wi-Fi board or ask your waiter) to place your order immediately.",
+            isPermissionError: check.reason !== "OUTSIDE_RADIUS",
+          });
+          checkoutInFlightRef.current = false;
+          return;
+        }
+
+        onPlaceOrder(cart, { geoVerified: true, distanceMeters: check.distanceMeters });
+        setCart([]);
+        setIsMobileCartOpen(false);
+      } catch {
+        setIsVerifyingLocation(false);
+        setShowBypassInput(true);
+        setGeoBlockedModal({
+          message:
+            "Indoor GPS signal unavailable. Enter Today's Dine-In Code (posted on the café Wi-Fi board or ask your waiter) to place your order.",
+          isPermissionError: true,
+        });
+        checkoutInFlightRef.current = false;
+      }
+    } finally {
+      setTimeout(() => {
+        checkoutInFlightRef.current = false;
+      }, 500);
     }
   };
 
