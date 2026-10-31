@@ -547,6 +547,7 @@ export default function Home({ restaurantSlug }: { restaurantSlug?: string } = {
       token: getTokenForTable(validNum),
       activatedAt: Date.now(),
     });
+    handleUpdateTableStatus(validNum, "SEATED");
   };
 
   const handleSubmitArcadeScore = (entry: Omit<LeaderboardEntry, "id" | "createdAt">) => {
