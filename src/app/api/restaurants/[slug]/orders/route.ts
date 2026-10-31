@@ -289,6 +289,33 @@ export async function POST(
       });
     }
 
+    const existingRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/orders?id=eq.${encodeURIComponent(serverOrderId)}&restaurant_id=eq.${encodeURIComponent(restaurant.id)}&select=*&limit=1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (existingRes.ok) {
+      const existingRows = await existingRes.json();
+      if (Array.isArray(existingRows) && existingRows[0]) {
+        return NextResponse.json({
+          success: true,
+          duplicate: true,
+          order: {
+            id: String(existingRows[0].id),
+            orderNumber: existingRows[0].order_number,
+            restaurantId: existingRows[0].restaurant_id,
+            table: Number(existingRows[0].table_number),
+            items: validatedItems,
+            subtotal: Number(existingRows[0].subtotal),
+            serviceFee: Number(existingRows[0].service_fee),
+            total: Number(existingRows[0].total),
+            status: existingRows[0].status,
+            createdAt: Date.parse(existingRows[0].created_at) || now,
+            updatedAt: Date.parse(existingRows[0].updated_at) || now,
+          },
+        });
+      }
+    }
+
     // Insert order through server-side authenticated connection
     const payload = {
       id: serverOrderId,
@@ -310,6 +337,32 @@ export async function POST(
     });
 
     if (!res.ok) {
+      if (res.status === 409 && clientOrderId) {
+        const duplicateRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/orders?id=eq.${encodeURIComponent(serverOrderId)}&restaurant_id=eq.${encodeURIComponent(restaurant.id)}&select=*&limit=1`,
+          { headers: getHeaders(), cache: "no-store" }
+        );
+        const duplicateRows = duplicateRes.ok ? await duplicateRes.json() : [];
+        if (Array.isArray(duplicateRows) && duplicateRows[0]) {
+          return NextResponse.json({
+            success: true,
+            duplicate: true,
+            order: {
+              id: String(duplicateRows[0].id),
+              orderNumber: duplicateRows[0].order_number,
+              restaurantId: duplicateRows[0].restaurant_id,
+              table: Number(duplicateRows[0].table_number),
+              items: validatedItems,
+              subtotal: Number(duplicateRows[0].subtotal),
+              serviceFee: Number(duplicateRows[0].service_fee),
+              total: Number(duplicateRows[0].total),
+              status: duplicateRows[0].status,
+              createdAt: Date.parse(duplicateRows[0].created_at) || now,
+              updatedAt: Date.parse(duplicateRows[0].updated_at) || now,
+            },
+          });
+        }
+      }
       const errText = await res.text();
       return NextResponse.json(
         { success: false, error: `Failed to insert order: ${errText}` },

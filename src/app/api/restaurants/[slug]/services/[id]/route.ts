@@ -62,7 +62,7 @@ export async function PATCH(
         headers: getHeaders(),
         body: JSON.stringify({
           status: "Resolved",
-          resolved_at: Date.now(),
+          resolved_at: new Date().toISOString(),
         }),
       }
     );

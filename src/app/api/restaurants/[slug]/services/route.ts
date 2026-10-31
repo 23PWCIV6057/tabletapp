@@ -53,7 +53,7 @@ export async function GET(
     }
 
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/service_requests?restaurant_id=eq.${restaurant.id}&select=*&order=created_at.desc&limit=50`,
+      `${SUPABASE_URL}/rest/v1/service_requests?restaurant_id=eq.${restaurant.id}&status=eq.Pending&select=*&order=created_at.desc&limit=50`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -141,7 +141,10 @@ export async function POST(
       return NextResponse.json({ success: false, error: "Database not configured." }, { status: 503 });
     }
 
-    const reqId = crypto.randomUUID();
+    const reqId =
+      typeof body?.id === "string" && /^srv_[a-zA-Z0-9_-]{8,80}$/.test(body.id)
+        ? body.id
+        : crypto.randomUUID();
     const payload = {
       id: reqId,
       restaurant_id: restaurant.id,

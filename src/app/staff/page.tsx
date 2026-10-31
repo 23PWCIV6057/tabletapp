@@ -285,7 +285,11 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
     const unsubscribe = subscribeToSyncEvents((event) => {
       switch (event.type) {
         case "NEW_ORDER":
-          setOrders((prev) => [event.payload, ...prev]);
+          setOrders((prev) =>
+            prev.some((order) => order.id === event.payload.id)
+              ? prev
+              : [event.payload, ...prev]
+          );
           setTableSessions((prev) => ({
             ...prev,
             [event.payload.table]: {
@@ -329,7 +333,11 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
           );
           break;
         case "NEW_SERVICE_REQUEST":
-          setServiceRequests((prev) => [event.payload, ...prev]);
+          setServiceRequests((prev) =>
+            prev.some((request) => request.id === event.payload.id)
+              ? prev
+              : [event.payload, ...prev]
+          );
           if (event.payload.type === "Request Bill") {
             setTableSessions((prev) => ({
               ...prev,
@@ -603,7 +611,8 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
     const nextServices = serviceRequests.map((s) =>
       s.id === requestId ? { ...s, status: "Resolved" as const, resolvedAt } : s
     );
-    setServiceRequests(nextServices);
+    setServiceRequests(nextServices.filter((service) => service.id !== requestId));
+    saveStoredServices(nextServices.filter((service) => service.id !== requestId));
     saveStoredServices(nextServices);
     broadcastSyncEvent({
       type: "SERVICE_RESOLVED",

@@ -18,7 +18,12 @@ export function mergeCloudOrdersWithLocalMeta(
   localOrders: OrderCard[]
 ): OrderCard[] {
   const localMap = new Map(localOrders.map((o) => [o.id, o]));
-  return cloudOrders.map((cloud) => {
+  const seen = new Set<string>();
+  return cloudOrders.filter((cloud) => {
+    if (seen.has(cloud.id)) return false;
+    seen.add(cloud.id);
+    return true;
+  }).map((cloud) => {
     const local = localMap.get(cloud.id);
     if (!local) return cloud;
     return {
