@@ -61,6 +61,32 @@ export async function POST(
     // Issue an expiring guest session capability token (4 hours TTL)
     const capabilityToken = signGuestTableToken(restaurant.id, matchedTable, 4);
 
+    const now = new Date().toISOString();
+    const sessionRes = await fetch(`${SUPABASE_URL}/rest/v1/table_sessions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify({
+        restaurant_id: restaurant.id,
+        table_number: matchedTable,
+        status: "SEATED",
+        seated_at: now,
+        last_activity_at: now,
+        updated_at: now,
+      }),
+    });
+    if (!sessionRes.ok) {
+      const errorText = await sessionRes.text();
+      return NextResponse.json(
+        { success: false, error: "Table session could not be activated.", details: errorText },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       tableNumber: matchedTable,
