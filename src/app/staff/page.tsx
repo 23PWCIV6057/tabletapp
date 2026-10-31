@@ -34,6 +34,7 @@ import {
   getStoredTables,
   getStoredTableSessions,
   saveStoredTables,
+  saveStoredTableSessions,
   updateTableStatus,
 } from "@/lib/tables";
 import { getStoredGeoConfig, saveStoredGeoConfig } from "@/lib/geo";
@@ -48,6 +49,7 @@ import {
   fetchMenuFromSupabase,
   fetchOrdersFromSupabase,
   fetchServicesFromSupabase,
+  fetchTableSessions,
   fetchTableTokensFromSupabase,
   isSupabaseConfigured,
   subscribeToSupabaseRealtime,
@@ -58,6 +60,7 @@ import {
   syncOrderStatusToSupabase,
   syncOrderTransferToSupabase,
   syncServiceResolveToSupabase,
+  syncTableSession,
 } from "@/lib/supabase";
 import { playAlertChime, playOrderChime } from "@/lib/sound";
 import {
@@ -176,6 +179,12 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
           }
         }
       });
+      fetchTableSessions().then((cloudSessions) => {
+        if (cloudSessions) {
+          setTableSessions(cloudSessions);
+          saveStoredTableSessions(cloudSessions);
+        }
+      });
 
       pollingTimer = setInterval(async () => {
         try {
@@ -224,6 +233,7 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
                 } else if (existing && existing.status !== cs.status) {
                   hasChanges = true;
                 }
+
               }
 
               if (!hasChanges && cloudServices.length === prev.length) return prev;
@@ -232,6 +242,12 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
               saveStoredServices(cloudServices);
               return cloudServices;
             });
+          }
+
+          const cloudSessions = await fetchTableSessions();
+          if (cloudSessions) {
+            setTableSessions(cloudSessions);
+            saveStoredTableSessions(cloudSessions);
           }
 
           if ((getStoredGeoConfig().activePreset || "default") === "default") {
@@ -506,11 +522,13 @@ export default function StaffHubPage({ restaurantSlug }: { restaurantSlug?: stri
       type: "TABLE_STATUS_CHANGED",
       payload: { tableNumber: table, status, seatedAt: updated.seatedAt },
     });
+    syncTableSession(table, status, updated.seatedAt);
   };
 
   const handleClearTable = (table: number) => {
     const cleared = clearTableFloorSession(table);
     setTableSessions((prev) => ({ ...prev, [table]: cleared }));
+    syncTableSession(table, "VACANT");
 
     const updatedOrders = orders.map((o) => {
       if (o.table === table && o.status !== "Archived") {

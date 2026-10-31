@@ -1,4 +1,4 @@
-import { GeoFenceConfig, LeaderboardEntry, MenuCategory, MenuItem, ModifierGroup, OrderCard, OrderStatus, ServiceRequest, SyncEvent } from "@/types";
+import { GeoFenceConfig, LeaderboardEntry, MenuCategory, MenuItem, ModifierGroup, OrderCard, OrderStatus, ServiceRequest, SyncEvent, TableOccupancyStatus, TableSession } from "@/types";
 import { DEFAULT_GEO_CONFIG } from "./geo";
 import { initialMenuData } from "./sync";
 
@@ -48,6 +48,49 @@ function getBrowserRestaurantSlug(): string {
   }
   return "heatbox";
 }
+
+  function getTableSessionHeaders(): HeadersInit {
+    const token = getBrowserAuthToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  export async function fetchTableSessions(): Promise<Record<number, TableSession> | null> {
+    if (typeof window === "undefined") return null;
+    try {
+      const res = await fetch(`/api/restaurants/${getBrowserRestaurantSlug()}/tables/sessions`, {
+        headers: getTableSessionHeaders(),
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const body = await res.json();
+      if (!body.success || !Array.isArray(body.sessions)) return null;
+      return Object.fromEntries(
+        body.sessions.map((session: TableSession) => [session.tableNumber, session])
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  export async function syncTableSession(
+    tableNumber: number,
+    status: TableOccupancyStatus,
+    seatedAt?: number
+  ): Promise<TableSession | null> {
+    if (typeof window === "undefined") return null;
+    try {
+      const res = await fetch(`/api/restaurants/${getBrowserRestaurantSlug()}/tables/sessions`, {
+        method: "PATCH",
+        headers: { ...getTableSessionHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ tableNumber, status, seatedAt }),
+      });
+      if (!res.ok) return null;
+      const body = await res.json();
+      return body.success ? body.session : null;
+    } catch {
+      return null;
+    }
+  }
 
 export function getGuestCapabilityToken(): string | null {
   if (typeof window === "undefined") return null;
